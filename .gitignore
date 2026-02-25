@@ -1,0 +1,8 @@
+*.asm
+*.s
+*.o
+*.out
+*.exe
+*.d
+build
+.DS_Store

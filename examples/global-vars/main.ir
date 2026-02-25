@@ -1,0 +1,2 @@
+VARIABLE a = 5
+VARIABLE b = a
