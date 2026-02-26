@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 
-void transpile_ARM64_OSX(FILE* ir, FILE* s) {
+void transpile_darwin_ARM64(FILE* ir, FILE* s) {
 
     char line[MAX];
     
@@ -40,7 +40,7 @@ void transpile_ARM64_OSX(FILE* ir, FILE* s) {
                 fprintf(s, "    adrp x8, _%s@PAGE\n", arg1);
                 fprintf(s, "    add x8, x8, _%s@PAGEOFF\n", arg1);
                 fprintf(s, "    mov x9, #%s\n", arg2);
-                fprintf(s, "    str x9, [x8]\n\n");
+                fputs("    str x9, [x8]\n\n", s);
 
             } else { // literal assignment
 
@@ -50,7 +50,7 @@ void transpile_ARM64_OSX(FILE* ir, FILE* s) {
                 
                 fprintf(s, "    adrp x10, _%s@PAGE\n", arg1);
                 fprintf(s, "    add x10, x10, _%s@PAGEOFF\n", arg1);
-                fprintf(s, "    str x9, [x10]\n\n");
+                fputs("    str x9, [x10]\n\n", s);
             }
 
         } else if (!strncmp(line, "FUNCALL print", 13)) { // print function call
@@ -66,7 +66,7 @@ void transpile_ARM64_OSX(FILE* ir, FILE* s) {
                 fprintf(s, "    ; %s", line);
                 fprintf(s, "    adrp x0, msg%d@PAGE\n", stringc);
                 fprintf(s, "    add x0, x0, msg%d@PAGEOFF\n", stringc);
-                fprintf(s, "    bl _printf\n\n");
+                fputs("    bl _printf\n\n", s);
                 
                 stringc++;
             }
@@ -111,7 +111,7 @@ void transpile_ARM64_OSX(FILE* ir, FILE* s) {
 
 
 
-void transpile_intel_x86_64(FILE *ir, FILE *s) {
+void transpile_darwin_x86_64(FILE *ir, FILE *s) {
 
     char line[MAX];
     

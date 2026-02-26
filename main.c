@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
             compile(src, ir);
 
             rewind(ir);
-            transpile_ARM64_OSX(ir, s);
+            transpile_darwin_ARM64(ir, s);
 
             fclose(src);
             fclose(ir);
@@ -109,7 +109,7 @@ int main(int argc, char** argv) {
             compile(src, ir);
 
             rewind(ir);
-            transpile_intel_x86_64(ir, s);
+            transpile_darwin_x86_64(ir, s);
 
             fclose(src);
             fclose(ir);
@@ -129,7 +129,6 @@ int main(int argc, char** argv) {
                 wait(NULL);
 
             break;
-
 
 
         default:
