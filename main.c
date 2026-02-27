@@ -26,6 +26,7 @@ int main(int argc, char** argv) {
 
             // TODO: print help for now
             // TODO: make REPL later
+
             break;
 
         case 2:
