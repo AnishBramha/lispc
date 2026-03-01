@@ -5,6 +5,9 @@
 #include "./common.h"
 #include "./tokeniser.h"
 
+#define STD_ARRAY
+#include "./std/array.h"
+
 
 TokenInfo* unsafe_get(FILE* src, size_t line) {
 
@@ -13,7 +16,7 @@ TokenInfo* unsafe_get(FILE* src, size_t line) {
 
     int c;
 
-    for (;;) {
+    loop {
 
         switch (c = fgetc(src)) {
 
@@ -208,6 +211,111 @@ TokenInfo* unsafe_get_string(FILE* src, TokenInfo* tokenInfo) {
     tokenInfo->token = STRING;
 
     return tokenInfo;
+}
+
+
+char* unsafe_token_to_string(Token token) {
+
+    char* str = NULL;
+
+    switch (token) {
+
+        case LEFT_PAREN:
+            arr_push(str, '(');
+            break;
+
+        case RIGHT_PAREN:
+            arr_push(str, ')');
+            break;
+
+        case PLUS:
+            arr_push(str, '+');
+            break;
+
+        case MINUS:
+            arr_push(str, '-');
+            break;
+
+        case STAR:
+            arr_push(str, '*');
+            break;
+
+        case SLASH:
+            arr_push(str, '/');
+            break;
+
+        case PERCENT:
+            arr_push(str, '%');
+            break;
+
+        case CARET:
+            arr_push(str, '^');
+            break;
+
+        case SEMICOLON:
+            arr_push(str, ';');
+            break;
+
+        case PRINT:
+            arr_push(str, 'p');
+            arr_push(str, 'r');
+            arr_push(str, 'i');
+            arr_push(str, 'n');
+            arr_push(str, 't');
+            break;
+
+        case DEFVAR:
+            arr_push(str, 'd');
+            arr_push(str, 'e');
+            arr_push(str, 'f');
+            arr_push(str, 'v');
+            arr_push(str, 'a');
+            arr_push(str, 'r');
+            break;
+
+        case DEFUN:
+            arr_push(str, 'd');
+            arr_push(str, 'e');
+            arr_push(str, 'f');
+            arr_push(str, 'u');
+            arr_push(str, 'n');
+            break;
+
+        case INT:
+            arr_push(str, 'i');
+            arr_push(str, 'n');
+            arr_push(str, 't');
+            break;
+
+        case FLOAT:
+            arr_push(str, 'f');
+            arr_push(str, 'l');
+            arr_push(str, 'o');
+            arr_push(str, 'a');
+            arr_push(str, 't');
+            break;
+
+        case STRING:
+            arr_push(str, 's');
+            arr_push(str, 't');
+            arr_push(str, 'r');
+            arr_push(str, 'i');
+            arr_push(str, 'n');
+            arr_push(str, 'g');
+            break;
+
+        case END_OF_FILE:
+            arr_push(str, 'E');
+            arr_push(str, 'O');
+            arr_push(str, 'F');
+            break;
+
+        default:
+            break;
+    }
+
+    arr_push(str, NIL);
+    return str;
 }
 
 

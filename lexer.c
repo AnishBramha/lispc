@@ -22,7 +22,7 @@ void compile_variable_declaration(FILE* src, FILE* ir) {
         fprintf(ir, "VARIABLE %s = ", name);
 
         char value[MAX];
-        for (;;) {
+        loop {
 
             char c = fgetc(src);
 

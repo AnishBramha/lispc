@@ -7,7 +7,9 @@
 
 #define MAX 1024
 
-#define NIL '\0';
+#define NIL '\0'
+
+#define loop for(;;)
 
 
 
