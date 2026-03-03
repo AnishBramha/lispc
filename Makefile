@@ -1,6 +1,6 @@
 CXX = clang
 
-CXXFLAGS = -std=c23 -Wall -Wextra -Wpedantic -fsanitize=address,undefined -g -MMD
+CXXFLAGS = -std=c23 -Wall -Wextra -Wpedantic -Werror -Wno-sign-compare -fsanitize=address,undefined -g -MMD
 
 LDFLAGS = -fsanitize=address,undefined -g
 
@@ -28,7 +28,7 @@ $(eval $(COLOR_CODES))
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	@echo "\n$(BOLD)$(GREEN)Compilation finished ✓$(RESET)"
+	@printf "\n$(BOLD)$(GREEN)Compilation finished with code %d ✓$(RESET)\n" $$status;
 	@echo "\n$(BOLD)$(CYAN)Linking ↺$(RESET)"
 	@if ! $(CXX) $(LDFLAGS) -o $@ $^ > /dev/null ; then \
 		echo "\n$(BOLD)$(RED)Linking failed ✘$(RESET)\n"; \
@@ -44,7 +44,7 @@ $(BUILD_DIR)/%.o: ./%.c
 	@mkdir -p $(dir $@)
 
 	@if ! $(CXX) $(CXXFLAGS) -c $< -o $@ > /dev/null; then \
-		echo "\n$(BOLD)$(RED)Compilation exited abnormally ✘$(RESET)\n\n"; \
+		printf "\n$(BOLD)$(RED)Compilation exited abnormally with code %d ✘ $(RESET)\n\n" $$status;\
 		exit 1;\
 	fi
 

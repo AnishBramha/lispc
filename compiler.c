@@ -59,7 +59,6 @@ char* unsafe_compile_list(FILE* ir, ASTNode* node) {
     if (!node->children) // atom
         return unsafe_compile_atom(ir, node);
 
-    char* reg = NULL;
     size_t mem_offset;
     // list
     switch (node->children[0]->current->token) { // first element of a list denotes op
