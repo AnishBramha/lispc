@@ -1,2 +1,14 @@
-VARIABLE a = 5
-VARIABLE b = a
+a = 5
+
+%t0 = a
+b = %t0
+
+PRINT "a = "
+%t0 = a
+PRINT %t0
+PRINT " and b = "
+%t1 = b
+PRINT %t1
+
+NEWLINE
+

@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
             compile(src, ir);
 
             rewind(ir);
-            transpile_darwin_x86_64(ir, s);
+            // transpile_darwin_x86_64(ir, s);
 
             fclose(src);
             fclose(ir);

@@ -126,6 +126,9 @@ TokenInfo* unsafe_get_alpha(FILE* src, int c, TokenInfo* tokenInfo) {
     if (!strncmp(tokenInfo->lexeme, "print", MAX))
         tokenInfo->token = PRINT;
 
+    else if (!strncmp(tokenInfo->lexeme, "newline", MAX))
+        tokenInfo->token = NEWLINE;
+
     else if (!strncmp(tokenInfo->lexeme, "defvar", MAX))
         tokenInfo->token = DEFVAR;
 

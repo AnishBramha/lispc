@@ -2,4 +2,7 @@
 (defvar b a) ;; variable assignment
 ;; (defvar c d) ;; undefined
 
+(print "a = " a " and b = " b)
+(newline)
+
 

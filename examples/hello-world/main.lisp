@@ -1,6 +1,7 @@
 ;; my first lisp program
 
-(print "Hello, World!\n")
+(print "Hello, World!")
+(newline)
 
 
 

@@ -1,13 +1,8 @@
 #pragma once
+
 #include <stdio.h>
 
 #include "./parser.h"
-
-#define STD_ARRAY
-#include "./std/array.h"
-#define STD_TABLE
-#include "./std/table.h"
-
 
 typedef enum {
 
@@ -23,7 +18,7 @@ typedef enum {
 typedef struct {
 
     char* name;
-    size_t offset;
+    size_t offset; // may be value as well
     SymbolType type;
     size_t depth;
     int arity;
@@ -36,7 +31,11 @@ extern Symbol* func_namespace;
 
 
 void compile(FILE* src, FILE* ir);
-
+char* unsafe_compile_list(FILE* ir, ASTNode*);
+char* unsafe_compile_atom(FILE* ir, ASTNode*);
+char* unsafe_compile_arithmetic(FILE* ir, ASTNode*, const char* op);
+char* unsafe_compile_print(FILE* ir, ASTNode*);
+char* unsafe_compile_newline(FILE* ir);
 
 
 

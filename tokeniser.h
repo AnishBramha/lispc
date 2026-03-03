@@ -7,22 +7,16 @@
 typedef enum {
 
     // symbol delimiters
-    LEFT_PAREN,
-    RIGHT_PAREN,
+    LEFT_PAREN, RIGHT_PAREN,
 
     // arithmetic
-    PLUS,
-    MINUS,
-    STAR,
-    SLASH,
-    PERCENT,
-    CARET,
+    PLUS, MINUS, STAR, SLASH, PERCENT, CARET,
 
     // comments
     SEMICOLON,
 
     // builtin functions
-    PRINT,
+    PRINT, NEWLINE,
 
     // miscellaneous
     IDENTIFIER, INT, FLOAT, STRING, END_OF_FILE,

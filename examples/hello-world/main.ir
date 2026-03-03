@@ -1,1 +1,4 @@
-FUNCALL print argc=1 args="Hello, World!\n"
+PRINT "Hello, World!"
+
+NEWLINE
+

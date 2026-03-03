@@ -5,6 +5,42 @@
 #include <stdlib.h>
 
 
+#define expect(handle, tokenInfo, ...) \
+    _expect(handle, tokenInfo, (const Token[]){__VA_ARGS__}, sizeof((const Token[]){__VA_ARGS__}) / sizeof(Token))
+
+
+static inline bool _expect(bool handle, TokenInfo* tokenInfo, const Token* tokens, size_t len) {
+
+    for (int i = 0; i < len; i++) {
+
+        if (tokens[i] == tokenInfo->token)
+            return true;
+    }
+
+    if (handle) {
+
+        fputs("SYNTAX ERROR: Expected one of [ ", stderr);
+
+        for (int i = 0; i < len; i++) {
+
+            char* token = unsafe_token_to_string(tokens[i]);
+            fprintf(stderr, "`%s`", token);
+            arr_free(token);
+
+            if (i < len - 1)
+                fputs(" , ", stderr);
+        }
+
+        char* token = unsafe_token_to_string(tokenInfo->token);
+        fprintf(stderr, " ] but got `%s` on line %zu\n", token, tokenInfo->line);
+        arr_free(token);
+    }
+
+    return false;
+}
+
+
+
 static inline ASTNode* unsafe_init(TokenInfo* token) {
 
     ASTNode* node = (ASTNode*)malloc(sizeof(ASTNode));
@@ -45,7 +81,7 @@ ASTNode* unsafe_build(FILE* src, TokenInfo* tokenInfo) { // recursive descent
     } else if (expect(true, tokenInfo, 
 
                 PLUS, MINUS, STAR, SLASH, PERCENT, CARET, SEMICOLON,
-                PRINT, IDENTIFIER, INT, FLOAT, STRING, DEFVAR, DEFUN
+                PRINT, IDENTIFIER, INT, FLOAT, STRING, DEFVAR, DEFUN, NEWLINE
 
                 )) { // atom
 
@@ -59,45 +95,21 @@ ASTNode* unsafe_build(FILE* src, TokenInfo* tokenInfo) { // recursive descent
 }
 
 
-
-static inline bool _expect(bool handle, TokenInfo* tokenInfo, const Token* tokens, size_t len) {
-
-    for (int i = 0; i < len; i++) {
-
-        if (tokens[i] == tokenInfo->token)
-            return true;
-    }
-
-    if (handle) {
-
-        fputs("SYNTAX ERROR: Expected one of [ ", stderr);
-
-        for (int i = 0; i < len; i++) {
-
-            char* token = unsafe_token_to_string(tokens[i]);
-            fprintf(stderr, "`%s`", token);
-            arr_free(token);
-
-            if (i < len - 1)
-                fputs(" , ", stderr);
-        }
-
-        char* token = unsafe_token_to_string(tokenInfo->token);
-        fprintf(stderr, " ] but got `%s` on line %zu\n", token, tokenInfo->line);
-        arr_free(token);
-    }
-
-    return false;
-}
-
-
 void freeAST(bool abort, ASTNode* node) {
 
     if (node) {
 
+        size_t len = arr_len(node->children);
+
+        for (int i = 0; i < len; i++) {
+
+            if (node->children[i])
+                freeAST(abort, node->children[i]);
+        }
+
         arr_free(node->children);
 
-        if (abort)
+        if (abort && node->current)
             free(node->current);
 
         free(node);
