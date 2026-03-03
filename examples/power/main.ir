@@ -1,0 +1,7 @@
+%t0 = POW 2 3
+%t1 = POW 2 1
+%t2 = POW %t0 %t1
+PRINT %t2
+
+NEWLINE
+
