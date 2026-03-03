@@ -1,8 +1,10 @@
-CXX = clang
+CXX = cc
 
 CXXFLAGS = -std=c23 -Wall -Wextra -Wpedantic -Werror -Wno-sign-compare -fsanitize=address,undefined -g -MMD
+# CXXFLAGS = -std=c23 -Wno-sign-compare -g -MMD
 
 LDFLAGS = -fsanitize=address,undefined -g
+# LDFLAGS = -g
 
 TARGET = lispc.out
 BUILD_DIR = build

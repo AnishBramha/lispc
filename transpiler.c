@@ -432,7 +432,15 @@ void transpile_nasm_x86_64(FILE* ir, FILE* s) {
                             t2[i] = ' ';
                     }
 
-                    strncpy(strings[stringc], t2, MAX);
+                    size_t len = strlen(t2);
+                    if (len >= 2 && t2[0] == '\"' && t2[len - 1] == '\"') {
+
+                        t2[len - 1] = NIL;
+                        strncpy(strings[stringc], t2 + 1, MAX); // skip NASM quotes
+
+                    } else
+                        strncpy(strings[stringc], t2, MAX);
+
                     fprintf(s, "    lea rdi, [rel msg%d]\n", stringc++);
 
                 } else if (t3[0] == '%') {
