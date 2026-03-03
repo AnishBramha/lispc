@@ -1,0 +1,25 @@
+x = 5
+
+%t0 = x
+%t1 = SUB 0 %t0
+%t2 = x
+%t3 = ADD %t1 %t2
+PRINT %t3
+PRINT "\n"
+
+%t0 = x
+%t1 = SUB %t0 1
+x = %t1
+
+%t0 = x
+PRINT %t0
+
+NEWLINE
+
+%t0 = x
+%t1 = SUB 0 %t0
+%t2 = x
+%t3 = ADD %t1 %t2
+PRINT %t3
+PRINT "\n"
+

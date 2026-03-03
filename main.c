@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
             if (!strncmp(src_path, ".lisp", MAX))
                 *src_path = NIL;
 
-            snprintf(ir_path, MAX, "%s.ir", arg);
+            snprintf(ir_path, MAX, "%s.lisp.ir", arg);
             snprintf(asm_path, MAX, "%s.s", arg);
 
             src = fopen(argv[1], "r");
@@ -80,9 +80,9 @@ int main(int argc, char** argv) {
 
         case 3:
 
-            if (strncmp(argv[2], "-rosetta", MAX)) {
+            if (strncmp(argv[2], "-nasm", MAX)) {
 
-                perror("Illegal flag: Use -rosetta for Intel x86_64");
+                perror("Illegal flag: Use -nasm for NASM x86_64");
             }
 
             strncpy(arg, argv[1], MAX);
@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
             if (!strncmp(src_path, ".lisp", MAX))
                 *src_path = NIL;
 
-            snprintf(ir_path, MAX, "%s.ir", arg);
+            snprintf(ir_path, MAX, "%s.lisp.ir", arg);
             snprintf(asm_path, MAX, "%s.asm", arg);
 
             src = fopen(argv[1], "r");
@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
             compile(src, ir);
 
             rewind(ir);
-            // transpile_darwin_x86_64(ir, s);
+            transpile_nasm_x86_64(ir, s);
 
             fclose(src);
             fclose(ir);
@@ -119,15 +119,24 @@ int main(int argc, char** argv) {
             ir = NULL;
             s = NULL;
 
-            if (!fork()) {
+            if (!fork())
+                execlp("nasm", "nasm", "-f", "elf64", asm_path, NULL);
 
-                char exec_path[MAX];
-                snprintf(exec_path, MAX, "%s.out", arg);
-                execlp("clang", "clang", "-target", "x86_64-apple-darwin", asm_path, "-save-temps", "-o", exec_path, NULL);
-            }
+            else {
 
-            else
                 wait(NULL);
+
+                if (!fork()) {
+
+                    char obj_path[MAX];
+                    snprintf(obj_path, MAX, "%s.o", arg);
+                    char exec_path[MAX];
+                    snprintf(exec_path, MAX, "%s.out", arg);
+                    execlp("gcc", "gcc", obj_path, "-lm", "-no-pie", "-o", exec_path, NULL);
+                }
+
+                wait(NULL);
+            }
 
             break;
 

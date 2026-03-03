@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 
-static inline void map_reg(FILE* s, const char* op, char* out_reg, int scratch_reg) {
+static inline void map_reg_arm(FILE* s, const char* op, char* out_reg, int scratch_reg) {
 
     if (op[0] == '%') {
 
@@ -152,7 +152,7 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
 
                     if (t2[0] == '%') { // literal
 
-                        map_reg(s, t2, arm_reg, 8);
+                        map_reg_arm(s, t2, arm_reg, 8);
                         fprintf(s, "    mov x0, %s\n", arm_reg);
 
                     } else { // variable
@@ -170,7 +170,7 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
                 char arm_reg[8];
 
                 if (t2[0] == '%') // expression result
-                    map_reg(s, t2, arm_reg, 8);
+                    map_reg_arm(s, t2, arm_reg, 8);
 
                 else if (isalpha(t2[0]) || t2[0] == '_') { // variable
 
@@ -181,7 +181,7 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
                     snprintf(arm_reg, 8, "x8");
 
                 } else // literal
-                    map_reg(s, t2, arm_reg, 8);
+                    map_reg_arm(s, t2, arm_reg, 8);
 
 
                 fputs("    adrp x0, l_msg_int@PAGE\n", s);
@@ -247,7 +247,7 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
                     snprintf(arm_reg, 8, "x8");
 
                 } else // literal
-                    map_reg(s, val_str, arm_reg, 8);
+                    map_reg_arm(s, val_str, arm_reg, 8);
 
                 // save reg back to variable
                 fprintf(s, "    adrp x6, _%s@PAGE\n", name);
@@ -268,8 +268,8 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
                     !strncmp(t3, "REM", MAX) || !strncmp(t3, "POW", MAX)) {
                     
                     char arm_reg1[8], arm_reg2[8];
-                    map_reg(s, t4, arm_reg1, 8);
-                    map_reg(s, t5, arm_reg2, 7);
+                    map_reg_arm(s, t4, arm_reg1, 8);
+                    map_reg_arm(s, t5, arm_reg2, 7);
 
                     if (!strncmp(t3, "ADD", MAX))
                         fprintf(s, "    add %s, %s, %s\n\n", hw_dest, arm_reg1, arm_reg2);
@@ -292,8 +292,8 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
 
                         char base_reg[8], exp_reg[8];
 
-                        map_reg(s, t4, base_reg, 6);
-                        map_reg(s, t5, exp_reg, 7);
+                        map_reg_arm(s, t4, base_reg, 6);
+                        map_reg_arm(s, t5, exp_reg, 7);
 
                         fprintf(s, "    scvtf d0, %s\n", base_reg);
                         fprintf(s, "    scvtf d1, %s\n", exp_reg);
@@ -319,7 +319,7 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
                     fprintf(s, "    add %s, %s, msg%d@PAGEOFF\n\n", hw_dest, hw_dest, stringc++);
 
                 } else // literal
-                    map_reg(s, t3, hw_dest, d_idx + 9);
+                    map_reg_arm(s, t3, hw_dest, d_idx + 9);
             }
         }
     }
@@ -352,6 +352,296 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
             fprintf(s, "msg%d: .asciz %s\n", i, strings[i]);
     }
 }
+
+static inline void map_reg_x86(FILE* s, const char* op, char* out_reg, const char* scratch_reg) {
+    if (op[0] == '%') {
+        int reg_idx;
+        sscanf(op, "%%t%d", &reg_idx);
+        // Map IR registers to r10-r15, then r8-r9 etc. 
+        // For simplicity, we'll use r10-r15 as volatile scratch
+        snprintf(out_reg, 16, "r%d", (reg_idx % 6) + 10); 
+    } else {
+        long long val = atoll(op);
+        fprintf(s, "    mov %s, %lld\n", scratch_reg, val);
+        snprintf(out_reg, 16, "%s", scratch_reg);
+    }
+}
+
+
+void transpile_nasm_x86_64(FILE* ir, FILE* s) {
+
+    char line[MAX];
+    char variables[MAX][64];
+    int var_types[MAX] = {0};
+    int varc = 0;
+    int reg_types[1024] = {0};
+    char strings[MAX][256];
+    int stringc = 0;
+
+    // Prologue (System V ABI)
+    fputs("; === PROLOGUE ===\n", s);
+    fputs("section .text\n", s);
+    fputs("global main\n", s);
+    fputs("extern printf\n", s);
+    fputs("extern puts\n", s);
+    fputs("extern pow\n", s);
+    fputs("main:\n", s);
+    fputs("    push rbp\n", s);
+    fputs("    mov rbp, rsp\n", s);
+    fputs("    sub rsp, 32\n\n", s);
+
+    while (fgets(line, sizeof(line), ir)) {
+        if (line[0] == '\n' || line[0] == '\r') continue;
+
+        char* quote_start = strchr(line, '\"');
+        if (quote_start) {
+            char* quote_end = strrchr(line, '\"');
+            if (quote_end && quote_end > quote_start) {
+                for (char* p = quote_start; p < quote_end; p++) {
+                    if (*p == ' ') *p = '\x01';
+                }
+            }
+        }
+
+        char t1[MAX], t2[MAX], t3[MAX], t4[MAX], t5[MAX], t6[MAX];
+        int n = sscanf(line, "%s %s %s %s %s %s", t1, t2, t3, t4, t5, t6);
+
+        for (int i = 0; i < strlen(line); i++) {
+
+            if (line[i] == '\x01')
+                line[i] = ' ';
+        }
+
+        fprintf(s, "    ; %s", line);
+
+        if (n == 1 && !strncmp(t1, "NEWLINE", MAX)) {
+
+            fputs("    lea rdi, [rel empty]\n", s);
+            fputs("    call puts\n\n", s);
+        } 
+        
+        else if (n >= 2 && !strncmp(t1, "PRINT", MAX)) {
+
+            if (is_string(t2, variables, var_types, varc, reg_types)) {
+
+                if (t2[0] == '\"') {
+
+                    for (int i = 0; t2[i]; i++) {
+
+                        if (t2[i] == '\x01')
+                            t2[i] = ' ';
+                    }
+
+                    strncpy(strings[stringc], t2, MAX);
+                    fprintf(s, "    lea rdi, [rel msg%d]\n", stringc++);
+
+                } else if (t3[0] == '%') {
+
+                    char x86_reg[16];
+                    map_reg_x86(s, t2, x86_reg, "rdi");
+
+                    if (strcmp(x86_reg, "rdi") != 0)
+                        fprintf(s, "    mov rdi, %s\n", x86_reg);
+
+                } else
+                    fprintf(s, "    mov rdi, [rel _%s]\n", t2);
+
+                fputs("    xor eax, eax ; printf is variadic\n", s);
+                fputs("    call printf\n\n", s);
+
+            } else {
+
+                char x86_reg[16];
+
+                if (t2[0] == '%')
+                    map_reg_x86(s, t2, x86_reg, "rsi");
+
+                else if (isalpha(t2[0]) || t2[0] == '_') {
+
+                    fprintf(s, "    mov rsi, [rel _%s]\n", t2);
+                    strcpy(x86_reg, "rsi");
+
+                } else
+                    map_reg_x86(s, t2, x86_reg, "rsi");
+
+                fputs("    lea rdi, [rel l_msg_int]\n", s);
+
+                if (strcmp(x86_reg, "rsi") != 0)
+                    fprintf(s, "    mov rsi, %s\n", x86_reg);
+
+                fputs("    xor eax, eax\n", s);
+                fputs("    call printf\n\n", s);
+            }
+        }
+
+        else if (n >= 3 && !strncmp(t2, "=", MAX)) {
+
+            int is_rhs_string = is_string(t3, variables, var_types, varc, reg_types);
+            
+            if (t1[0] != '%') { // Assignment to variable
+
+                char* name = t1;
+                int v_idx = -1;
+
+                for (int i = 0; i < varc; i++) {
+                    if (!strncmp(variables[i], name, MAX))
+                        v_idx = i; break;
+                }
+
+                if (v_idx == -1) {
+
+                    v_idx = varc++;
+                    strncpy(variables[v_idx], name, MAX);
+                }
+
+                var_types[v_idx] = is_rhs_string;
+
+
+                char src_reg[16];
+
+                if (t3[0] == '\"') {
+
+                    for (int i = 0; t3[i]; i++) {
+
+                        if (t3[i] == '\x01')
+                            t3[i] = ' ';
+                    }
+
+                    strncpy(strings[stringc], t3, 255);
+                    strings[stringc][255] = '\0';
+
+                    fprintf(s, "    lea rax, [rel msg%d]\n", stringc++);
+                    strcpy(src_reg, "rax");
+
+                } else if (isalpha(t3[0]) || t3[0] == '_') {
+
+                    fprintf(s, "    mov rax, [rel _%s]\n", t3);
+                    strcpy(src_reg, "rax");
+
+                } else
+                    map_reg_x86(s, t3, src_reg, "rax");
+
+                fprintf(s, "    mov [rel _%s], %s\n\n", name, src_reg);
+            } 
+            else { // Arithmetic or Temporary Assignment
+
+                int d_idx; sscanf(t1, "%%t%d", &d_idx);
+                char hw_dest[16]; snprintf(hw_dest, 16, "r%d", (d_idx % 6) + 10);
+                reg_types[d_idx] = is_rhs_string;
+
+                if (!strncmp(t3, "ADD", MAX) || !strncmp(t3, "SUB", MAX) || !strncmp(t3, "MUL", MAX) || !strncmp(t3, "DIV", MAX) || !strncmp(t3, "REM", MAX) || !strncmp(t3, "POW", MAX)) {
+
+                    char reg1[16], reg2[16];
+                    map_reg_x86(s, t4, reg1, "rax");
+                    map_reg_x86(s, t5, reg2, "rcx");
+
+                    if (!strncmp(t3, "ADD", MAX))
+                        fprintf(s, "    mov %s, %s\n    add %s, %s\n", hw_dest, reg1, hw_dest, reg2);
+                    
+                    else if (!strncmp(t3, "SUB", MAX))
+                        fprintf(s, "    mov %s, %s\n    sub %s, %s\n", hw_dest, reg1, hw_dest, reg2);
+
+                    else if (!strncmp(t3, "MUL", MAX))
+                        fprintf(s, "    mov rax, %s\n    imul rax, %s\n    mov %s, rax\n", reg1, reg2, hw_dest);
+
+                    else if (!strncmp(t3, "DIV", MAX) || !strncmp(t3, "REM", MAX)) {
+                        fprintf(s, "    mov rax, %s\n    cqo\n    idiv %s\n", reg1, reg2);
+                        fprintf(s, "    mov %s, %s\n", hw_dest, !strncmp(t3, "REM", MAX) ? "rdx" : "rax");
+
+                    } else if (!strncmp(t3, "REM", MAX)) {
+                        fprintf(s, "    mov rax, %s\n    cqo\n    idiv %s\n", reg1, reg2);
+                        fprintf(s, "    mov %s, rdx\n", hw_dest);
+
+
+                    } else if (!strncmp(t3, "POW", MAX)) {
+
+                        char base_reg[16], exp_reg[16];
+
+                        map_reg_x86(s, t4, base_reg, "rax");
+                        map_reg_x86(s, t5, exp_reg, "rcx");
+
+                        fprintf(s, "    cvtsi2sd xmm0, %s\n", base_reg);
+                        fprintf(s, "    cvtsi2sd xmm1, %s\n", exp_reg);
+                        fputs("    call pow\n", s);
+                        fprintf(s, "    cvttsd2si %s, xmm0\n\n", hw_dest);
+}
+                } else if (isalpha(t3[0]) || t3[0] == '_') // variable
+                                                             //
+                    fprintf(s, "    mov %s, [rel _%s]\n", hw_dest, t3);
+
+                else if (t3[0] == '\"') { // string literal
+
+                    for (int i = 0; t3[i]; i++) {
+
+                        if (t3[i] == '\x01')
+                            t3[i] = ' ';
+                    }
+
+                    strncpy(strings[stringc], t3, MAX);
+                    fprintf(s, "    lea %s, [rel msg%d]\n", hw_dest, stringc++);
+
+                } else // literal
+                    map_reg_x86(s, t3, hw_dest, hw_dest);
+
+            }
+        }
+    }
+
+    // Epilogue
+    fputs("; === EPILOGUE ===\n", s);
+    fputs("    mov eax, 0\n", s);
+    fputs("    leave\n", s);
+    fputs("    ret\n\n", s);
+
+    // Data Sections
+    if (varc > 0) {
+        fputs("section .data\n", s);
+        for (int i = 0; i < varc; i++) fprintf(s, "_%s: dq 0\n", variables[i]);
+    }
+
+    fputs("\nsection .rodata\n", s);
+    fputs("l_msg_int: db \"%lld\", 0\n", s);
+    fputs("empty: db 0\n", s);
+
+    for (int i = 0; i < stringc; i++) {
+
+        fprintf(s, "msg%d: db ", i);
+
+        for (int j = 0; strings[i][j]; j++) {
+
+            if (strings[i][j] == '\\') {
+
+                j++;
+
+                switch (strings[i][j]) {
+
+                    case 'n':  fputs("10, ", s); break;
+                    case 'r':  fputs("13, ", s); break;
+                    case 't':  fputs("9, ", s);  break;
+                    case 'a':  fputs("7, ", s);  break;
+                    case '?':  fputs("63, ", s); break;
+                    case '\'': fputs("39, ", s); break;
+                    case '\"': fputs("34, ", s); break;
+                    case '\\': fputs("92, ", s); break;
+
+                    case NIL:
+                        j--;
+                        fputs("92, ", s);
+                        break;
+
+                    default:
+                        fprintf(s, "%d, ", (unsigned char)strings[i][j]);
+                        break;
+                }
+
+            } else
+                fprintf(s, "%d, ", (unsigned char)strings[i][j]);
+        }
+
+        fputs("0\n", s);
+    }
+}
+
 
 
 
