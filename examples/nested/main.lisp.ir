@@ -1,0 +1,11 @@
+
+
+%t0 = ADD 1 4
+x = %t0
+
+y = 5
+y = 6
+
+PRINT y
+PRINT "\n"
+

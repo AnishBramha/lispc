@@ -2,6 +2,7 @@
 #include "./common.h"
 #include "./tokeniser.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 
@@ -15,7 +16,7 @@ Symbol* var_namespace = NULL;
 Symbol* func_namespace = NULL;
 
 static size_t reg_idx = 0;
-static size_t global_offset = 0;
+// static size_t global_offset = 0;
 
 
 void compile(FILE* src, FILE* ir) {
@@ -34,11 +35,10 @@ void compile(FILE* src, FILE* ir) {
 
         ASTNode* node = unsafe_build(src, tokenInfo);
 
-        char* reg = unsafe_compile_list(ir, node);
+        char* _ = unsafe_compile_node(ir, node);
+        if (_)
+            free(_);
         
-        if (reg)
-            free(reg);
-
         freeAST(false, node);
 
         line = tokenInfo->line;
@@ -49,67 +49,17 @@ void compile(FILE* src, FILE* ir) {
 }
 
 
-char* unsafe_compile_list(FILE* ir, ASTNode* node) {
+char* unsafe_compile_node(FILE* ir, ASTNode* node) {
 
-    /* TODO:
-    * if atom, compile atom
-    * if list, compile each element as a list
-    * if each element is an atom, compile as atom, else recurse */
+    if (!node) // everything in lisp
+        return NULL;
 
-    if (!node->children) // atom
-        return unsafe_compile_atom(ir, node);
+    if (node->children) // is either a list
+        return unsafe_compile_list(ir, node);
 
-    size_t mem_offset;
-    // list
-    switch (node->children[0]->current->token) { // first element of a list denotes op
-
-        case PLUS:    return unsafe_compile_arithmetic(ir, node, "ADD");
-        case MINUS:   return unsafe_compile_arithmetic(ir, node, "SUB");
-        case STAR:    return unsafe_compile_arithmetic(ir, node, "MUL");
-        case SLASH:   return unsafe_compile_arithmetic(ir, node, "DIV");
-        case PERCENT: return unsafe_compile_arithmetic(ir, node, "REM");
-        case CARET:   return unsafe_compile_arithmetic(ir, node, "POW");
-
-        case PRINT:   return unsafe_compile_print(ir, node);
-        case NEWLINE: return unsafe_compile_newline(ir);
-
-        case DEFVAR: {
-
-            char* name = node->children[1]->current->lexeme;
-            char* reg = unsafe_compile_list(ir, node->children[2]);
-
-            if (!reg) {
-
-                fprintf(stderr, "COMPILATION ERROR: Illegal r-value is assigned to l-value `%s` on line %zu\n", name, node->children[1]->current->line);
-                exit(EX_DATAERR); // MEMORY LEAK!!
-            }
-
-            idx_t idx = table_get(var_namespace, name);
-
-            if (idx == -1) { // new var 
-
-                mem_offset = global_offset++;
-                table_put(var_namespace, name, mem_offset);
-
-            } else
-                mem_offset = var_namespace[idx].offset;
-
-            fprintf(ir, "%s = %s\n", name, reg);
-            free(reg);
-            return strdup(name);
-         }
-
-        case DEFUN: // TODO: need scopes
-        
-        case IDENTIFIER: // TODO: handle function calls or vars
-
-        default:
-            fprintf(stderr, "COMPILATION ERROR: Illegal token `%s` found on line `%zu`\n", node->children[0]->current->lexeme, node->children[0]->current->line);
-            exit(EX_DATAERR); // MEMORY LEAK!!
-    }
-
-    return NULL;
+    return unsafe_compile_atom(node); // or an atom
 }
+
 
 
 static char* unsafe_temp_reg(void) {
@@ -121,149 +71,278 @@ static char* unsafe_temp_reg(void) {
 }
 
 
+
+char* unsafe_compile_list(FILE* ir, ASTNode* node) {
+
+    if (!node || !node->current || !node->children)
+        return NULL;
+
+    // block (nested list)
+    if (node->children[0]->children || node->children[0]->current->token == LEFT_PAREN) {
+        
+        char* val = NULL;
+        
+        for (int i = 0; i < arr_len(node->children); i++) {
+            
+            if (val)
+                free(val);
+            
+            val = unsafe_compile_node(ir, node->children[i]); 
+        }
+        
+        return val; 
+    }
+
+    switch (node->children[0]->current->token) {
+
+        case PLUS:    return unsafe_compile_arithmetic(ir, node, "ADD");
+        case MINUS:   return unsafe_compile_arithmetic(ir, node, "SUB");
+        case STAR:    return unsafe_compile_arithmetic(ir, node, "MUL");
+        case SLASH:   return unsafe_compile_arithmetic(ir, node, "DIV");
+        case PERCENT: return unsafe_compile_arithmetic(ir, node, "REM");
+        case CARET:   return unsafe_compile_arithmetic(ir, node, "POW");
+
+        case PRINT:   return unsafe_compile_print(ir, node);
+        case NEWLINE: return unsafe_compile_newline(ir);
+
+        case DEFVAR:  return unsafe_compile_defvar(ir, node);
+        case DEFUN:   return unsafe_compile_defun(ir, node);
+
+        default:      return NULL;
+    }
+}
+
+
+
+
+char* unsafe_compile_atom(ASTNode* node) {
+
+    if (!node || !node->current)
+        return NULL;
+
+    if (node->current->token == STRING) { // add stripped quotes back on to string literals
+
+        size_t len = strlen(node->current->lexeme);
+        char* str = (char*)malloc(MAX);
+        
+        size_t j = 0;
+        str[j++] = '\"'; 
+        
+        for (size_t i = 0; i < len && j < MAX - 3; i++) { 
+
+            switch (node->current->lexeme[i]) {
+
+                case '\n':
+
+                    str[j++] = '\\';
+                    str[j++] = 'n';
+                    break;
+                    
+                case '\t':
+
+                    str[j++] = '\\';
+                    str[j++] = 't';
+                    break;
+                    
+                case '\r':
+
+                    str[j++] = '\\';
+                    str[j++] = 'r';
+                    break;
+
+
+                case '\'':
+                case '\"':
+                case '\?':
+                case '\\':
+
+                    str[j++] = '\\';
+                    str[j++] = node->current->lexeme[i];
+                    break;
+
+                default:
+                    str[j++] = node->current->lexeme[i];
+            }
+        }
+
+        str[j++] = '\"'; 
+        str[j] = NIL;
+
+        return str;
+    }
+
+    return strdup(node->current->lexeme);
+}
+
+
+
+
 char* unsafe_compile_arithmetic(FILE* ir, ASTNode* node, const char* op) {
 
-    char* acc = NULL;
-    size_t len = arr_len(node->children);
-    switch (len - 1) {
+    switch(arr_len(node->children)) {
 
-        case 0:
-            
+        case 1: // (op)
+
             if (!strncmp(op, "ADD", MAX) || !strncmp(op, "SUB", MAX) || !strncmp(op, "REM", MAX))
                 return strdup("0");
 
-            else if (!strncmp(op, "MUL", MAX) || !strncmp(op, "DIV", MAX) || !strncmp(op, "POW", MAX))
+            if (!strncmp(op, "MUL", MAX) || !strncmp(op, "DIV", MAX) || !strncmp(op, "POW", MAX))
                 return strdup("1");
 
-        case 1:
+        case 2:
 
-            if (!strncmp(op, "SUB", MAX)) {
+            if (!strncmp(op, "SUB", MAX)) { // unary minus
 
-                char* arg = unsafe_compile_list(ir, node->children[1]);
-                char* reg = unsafe_temp_reg();
-                fprintf(ir, "%s = SUB 0 %s\n", reg, arg);
+                char* reg = unsafe_compile_node(ir, node->children[1]);
+                char* res = unsafe_temp_reg();
+                fprintf(ir, "%s = SUB 0 %s\n", res, reg);
+                return res;
 
-                free(arg);
-                return reg;
             }
 
-            if (!strncmp(op, "DIV", MAX)) {
+            if (!strncmp(op, "DIV", MAX)) { // inverse
 
-                char* arg = unsafe_compile_list(ir, node->children[1]);
-                char* reg = unsafe_temp_reg();
-                fprintf(ir, "%s = DIV 1 %s\n", reg, arg);
-
-                free(arg);
-                return reg;
+                char* reg = unsafe_compile_node(ir, node->children[1]);
+                char* res = unsafe_temp_reg();
+                fprintf(ir, "%s = DIV 1 %s\n", res, reg);
+                return res;
             }
 
-            return unsafe_compile_list(ir, node->children[1]); // return expression itself
+            return unsafe_compile_node(ir, node->children[1]);
+
+
+        case 3:
+            return unsafe_fold_arithmetic(ir, node, op);
+
 
         default:
 
-            acc = unsafe_compile_list(ir, node->children[1]);
+            if (!strncmp(op, "POW", MAX)) {
 
-            size_t len = arr_len(node->children);
-            for (int i = 2; i <= len - 1; i++) {
-
-                char* arg = unsafe_compile_list(ir, node->children[i]);
-                char* reg = unsafe_temp_reg();
-
-                fprintf(ir, "%s = %s %s %s\n", reg, op, acc, arg);
-
-                free(arg);
-                free(acc);
-                acc = reg;
+                fprintf(stderr, "COMPILATION ERROR: Power operation on line %zu supports only 2 operands. Nest for more\n", node->children[0]->current->line);
+                freeAST(true, node);
+                exit(EX_DATAERR);
             }
 
-            return acc;
+            return unsafe_fold_arithmetic(ir, node, op);
+    }
+}
+
+
+char* unsafe_fold_arithmetic(FILE* ir, ASTNode* node, const char* op) {
+
+    char* acc = unsafe_compile_node(ir, node->children[1]);
+
+    for (int i = 2; i < arr_len(node->children); i++) {
+
+        char* next = unsafe_compile_node(ir, node->children[i]);
+
+        if (!next) { // only errors and statements return null
+
+            fprintf(stderr, "COMPILATION ERROR: Expected expression on line %zu\n", node->children[i]->current->line);
+            free(acc);
+            freeAST(true, node);
+            exit(EX_DATAERR);
+        }
+
+        char* res = unsafe_temp_reg();
+
+        fprintf(ir, "%s = %s %s %s\n", res, op, acc, next);
+
+        free(acc);
+        acc = strdup(res);
+
+        free(next);
+        free(res);
     }
 
-    return NULL;
+    return acc;
 }
+
 
 
 char* unsafe_compile_print(FILE* ir, ASTNode* node) {
 
-    size_t len = arr_len(node->children);
-    for (int i = 1; i <= len - 1; i++) {
+    for (int i = 1; i < arr_len(node->children); i++) {
 
-        char* arg = unsafe_compile_list(ir, node->children[i]);
+        char* arg = unsafe_compile_node(ir, node->children[i]);
 
-        if (!arg)
-            return NULL;
+        if (arg) {
 
-        fprintf(ir, "PRINT %s\n", arg);
-        free(arg);
+            fprintf(ir, "PRINT %s\n", arg);
+            free(arg);
+        }
     }
 
     return NULL;
 }
+
 
 char* unsafe_compile_newline(FILE* ir) {
 
     fputs("NEWLINE\n", ir);
-    
+
     return NULL;
 }
 
 
-char* unsafe_compile_atom(FILE* ir, ASTNode* node) {
+char* unsafe_compile_defvar(FILE* ir, ASTNode* node) {
 
-    if (node->current->token == INT || node->current->token == FLOAT)
-        return strdup(node->current->lexeme);
+    switch (arr_len(node->children)) {
 
-    if (node->current->token == STRING) {
+        case 1:
 
-        char* str = (char*)malloc(sizeof(char) * MAX);
-        size_t j = 0;
-        
-        str[j++] = '\"';
+            fprintf(stderr, "COMPILATION ERROR: Missing l-value in definition on line %zu\n", node->children[0]->current->line);
+            freeAST(true, node);
+            exit(EX_DATAERR);
 
-        char* lex = node->current->lexeme;
-        size_t len = strlen(lex);
 
-        for (size_t i = 0; i < len && j < MAX - 3; i++) {
-            
-            if ((i == 0 || i == len - 1) && lex[i] == '\"') {
-                continue;
+        case 2:
+
+            fprintf(stderr, "COMPILATION ERROR: Missing r-value in definition on line %zu\n", node->children[0]->current->line);
+            freeAST(true, node);
+            exit(EX_DATAERR);
+
+
+        case 3:
+
+            if (node->children[1]->current->token != IDENTIFIER) {
+
+                fprintf(stderr, "COMPILATION ERROR: Illegal l-value in definition on line %zu\n", node->children[0]->current->line);
+                freeAST(true, node);
+                exit(EX_DATAERR);
             }
 
-            switch (lex[i]) {
-                case '\n': str[j++] = '\\'; str[j++] = 'n'; break;
-                case '\r': str[j++] = '\\'; str[j++] = 'r'; break;
-                case '\t': str[j++] = '\\'; str[j++] = 't'; break;
-                case '\\': str[j++] = '\\'; str[j++] = '\\'; break;
-                case '\"': str[j++] = '\\'; str[j++] = '\"'; break;
+            char* val = unsafe_compile_node(ir, node->children[2]);
 
-                default:
-                   str[j++] = lex[i];
-                   break;
+            if (!val) {
+
+                fprintf(stderr, "COMPILATION ERROR: Illegal r-value in definition on line %zu\n", node->children[0]->current->line);
+                freeAST(true, node);
+                exit(EX_DATAERR);
             }
-        }
 
-        str[j++] = '\"';
-        str[j] = NIL;
-        
-        return str;
+            fprintf(ir, "%s = %s\n", node->children[1]->current->lexeme, val);
+            free(val);
+
+            return NULL;
+
+
+        default:
+
+            fprintf(stderr, "COMPILATION ERROR: Too many arguments for definition on line %zu\n", node->children[0]->current->line);
+            freeAST(true, node);
+            exit(EX_DATAERR);
     }
+}
 
-    if (node->current->token == IDENTIFIER) {
 
-        char* reg = unsafe_temp_reg();
-        idx_t idx = table_get(var_namespace, node->current->lexeme);
+char* unsafe_compile_defun(FILE* ir, ASTNode* node) {
 
-        if (idx == -1) {
+    (void)ir;
+    (void)node;
 
-            fprintf(stderr, "COMPILATION ERROR: Undefined variable `%s` on line `%zu`\n", node->current->lexeme, node->current->line);
-            exit(EX_DATAERR); // MEMORY LEAK!!
-        }
-
-        fprintf(ir, "%s = %s\n", reg, node->current->lexeme);
-
-        return reg;
-    }
-
+    // TODO
     return NULL;
 }
 

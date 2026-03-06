@@ -16,9 +16,6 @@ typedef struct ASTNode {
 } ASTNode;
 
 
-
-
-
 ASTNode* unsafe_build(FILE* src, TokenInfo* token);
 void freeAST(bool abort, ASTNode*);
 

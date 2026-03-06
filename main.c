@@ -80,6 +80,8 @@ int main(int argc, char** argv) {
 
         case 3:
 
+            #if 0
+
             if (strncmp(argv[2], "-nasm", MAX)) {
 
                 perror("Illegal flag: Use -nasm for NASM x86_64");
@@ -136,14 +138,16 @@ int main(int argc, char** argv) {
                 }
 
                 wait(NULL);
-            }
+            } 
+            
+            #endif
 
             break;
 
 
         default:
 
-            perror("Usage: lispc <src>.lisp [-rosetta]");
+            perror("Usage: lispc <src>.lisp [-nasm]");
             break;
     }
 

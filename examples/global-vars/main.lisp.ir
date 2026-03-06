@@ -1,14 +1,11 @@
 a = 5
 
-%t0 = a
-b = %t0
+b = a
 
 PRINT "a = "
-%t0 = a
-PRINT %t0
+PRINT a
 PRINT " and b = "
-%t1 = b
-PRINT %t1
+PRINT b
 
 NEWLINE
 

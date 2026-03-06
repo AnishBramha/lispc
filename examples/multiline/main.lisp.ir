@@ -1,0 +1,14 @@
+x = "World!"
+
+y = 4
+
+PRINT "Hi! My name is Anish \"and \'this\'\" is my first lisp\? compiler\t"
+PRINT "  and "
+PRINT "Hello, "
+PRINT x
+PRINT "!\n\n"
+PRINT "\t Hello "
+%t0 = ADD y 2
+PRINT %t0
+PRINT "\t = \"x + 2\" \n"
+

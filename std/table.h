@@ -103,7 +103,7 @@ static inline idx_t _table_find(void* m, size_t cap, size_t elem_size, const cha
     ((m) ? _table_find((m), table_header(m)->capacity, sizeof(*(m)), (k)) : -1)
 
 
-#define table_put(m, k, v) \
+#define table_put(m, k, v, i) \
     do { \
         if (!(m) || table_header(m)->count * 2 >= table_header(m)->capacity) \
             (m) = _table_grow((m), sizeof(*(m))); \
@@ -117,6 +117,7 @@ static inline idx_t _table_find(void* m, size_t cap, size_t elem_size, const cha
 \
         (m)[_i].name = (char*)(k); \
         (m)[_i].offset = (v); \
+        (i) = _i; \
 \
     } while(0)
 

@@ -1,30 +1,21 @@
 x = 5
 
-%t0 = x
-%t1 = ADD %t0 5
-y = %t1
+%t0 = ADD x 5
+y = %t0
 
-%t0 = x
-%t1 = y
-%t2 = ADD %t0 %t1
-%t3 = ADD %t2 1
-z = %t3
+%t0 = ADD x y
+%t1 = ADD %t0 1
+z = %t1
 
-%t0 = x
-PRINT %t0
+PRINT x
 PRINT " + "
-%t1 = y
-PRINT %t1
+PRINT y
 PRINT " + "
-%t2 = z
-PRINT %t2
+PRINT z
 PRINT " = "
-%t3 = x
-%t4 = y
-%t5 = ADD %t3 %t4
-%t6 = z
-%t7 = ADD %t5 %t6
-PRINT %t7
+%t0 = ADD x y
+%t1 = ADD %t0 z
+PRINT %t1
 
 NEWLINE
 

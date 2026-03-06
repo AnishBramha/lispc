@@ -1,70 +1,135 @@
 #include "./transpiler.h"
+#include "./common.h"
 #include <ctype.h>
 #include <stdio.h>
 
 
-static inline void map_reg_arm(FILE* s, const char* op, char* out_reg, int scratch_reg) {
+static bool free_bitmap[8] = {true, true, true, true, true, true, true, true};
 
-    if (op[0] == '%') {
+static size_t stack_offset = 0;
 
-        int reg_idx;
-        sscanf(op, "%%t%d", &reg_idx);
-        snprintf(out_reg, MAX, "x%d", reg_idx + 9); // x9 - x30
 
-    } else {
+static inline int map_reg_arm(void) {
 
-        long long val = atoll(op);
+    // scratch registers: x9 - x15
+    // indirect result register: x8 -> use if all scratch registers overflow
+    // if both overflow, spill on to the stack
 
-        if (val < 0) {
+    // RETURN VALUES:
+    // 8 - 15 -> mapping successful
+    // 0 -> spill on to stack
 
-            fprintf(s, "    mov x%d, #%lld\n", scratch_reg, -val);
-            fprintf(s, "    neg x%d, x%d\n", scratch_reg, scratch_reg);
+    for (int i = 1; i < 8; i++) {
 
-        } else
-            fprintf(s, "    mov x%d, #%lld\n", scratch_reg, val);
+        if (free_bitmap[i]) {
 
-        snprintf(out_reg, MAX, "x%d", scratch_reg);
+            free_bitmap[i] = false;
+            return i + 8;
+        }
     }
+
+    if (free_bitmap[0]) {
+
+        free_bitmap[0] = false;
+        return 8;
+    }
+
+    stack_offset += 8;
+    return 0;
 }
 
-static int is_string(char* token, char variables[][64], int var_types[], int varc, int reg_types[]) {
 
-    if (token[0] == '\"')
-        return 1;
+static inline void free_reg_arm(int reg_num) {
 
-    if (token[0] == '%') {
+    if (8 <= reg_num && reg_num <= 15)
+        free_bitmap[reg_num - 8] = true;
+}
 
-        int r_idx;
-        sscanf(token, "%%t%d", &r_idx);
+
+static inline size_t fetch_operand(FILE* s, const char* op, int phys_reg[], char* out_reg) {
+    
+    if (op[0] == '%') {
+
+        size_t idx;
+        sscanf(op, "%%t%zu", &idx);
+
+        int loc = phys_reg[idx];
+        
+        if (loc > 0) {
+
+            snprintf(out_reg, 16, "x%d", loc);
+            return loc; 
+        }
+        
+        size_t reg = map_reg_arm();
+        reg = reg ? reg : 16;
+        
+        fprintf(s, "    ldr x%zu, [x29, #%d]\n", reg, loc);
+        snprintf(out_reg, 16, "x%zu", reg);
+        return reg;
+    }
+
+    size_t reg = map_reg_arm();
+    reg = reg ? reg : 16;
+
+    if (isalpha(op[0]) || op[0] == '_') {
+
+        fprintf(s, "    adrp x%zu, _%s@PAGE\n", reg, op);
+        fprintf(s, "    ldr x%zu, [x%zu, _%s@PAGEOFF]\n", reg, reg, op);
+
+    } else
+        fprintf(s, "    mov x%zu, #%lld\n", reg, atoll(op));
+
+    snprintf(out_reg, 16, "x%zu", reg);
+    return reg;
+}
+
+
+
+
+static inline bool is_string(char* literal, char variables[MAX][MAX], bool var_types[], int varc, bool reg_types[]) {
+
+    if (literal[0] == '\"')
+        return true;
+
+    if (literal[0] == '%') {
+
+        size_t r_idx;
+        sscanf(literal, "%%t%zu", &r_idx);
 
         return reg_types[r_idx];
     }
 
-    if (isalpha(token[0]) || token[0] == '_') {
+    if (isalpha(literal[0]) || literal[0] == '_') {
 
         for (int i = 0; i < varc; i++) {
 
-            if (!strncmp(variables[i], token, MAX))
+            if (!strncmp(variables[i], literal, MAX))
                 return var_types[i];
         }
     }
 
-    return 0;
+    return false;
 }
 
 
 void transpile_darwin_ARM64(FILE* ir, FILE* s) {
 
+    // Shuttle registers for backup in load operations - x16, x17
+
     char line[MAX];
-    
-    char variables[MAX][64];
-    int var_types[MAX] = {0};
-    int varc = 0;
-    
-    int reg_types[1024] = {0};
-    
-    char strings[MAX][256];
-    int stringc = 0;
+
+    char variables[MAX][MAX];
+    bool var_types[MAX] = {false};
+    size_t varc = 0;
+
+    bool reg_types[MAX] = {false};
+
+    char strings[MAX][MAX];
+    size_t stringc = 0;
+
+    int phys_reg[MAX] = {0};
+
 
     // prologue
     fputs("; === PROLOGUE ===\n", s);
@@ -74,142 +139,108 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
     fputs("; === GLOBAL ENTRY ===\n", s);
     fputs("_main:\n", s);
     fputs("    stp x29, x30, [sp, #-16]!\n", s);
-    fputs("    mov x29, sp\n\n", s);
+    fputs("    mov x29, sp\n", s);
+    fputs("    ; STACK SPILL BUFFER\n", s);
+    fputs("    sub sp, sp, #4096\n\n", s);
 
-    while (fgets(line, sizeof(line), ir)) {
 
-        if (line[0] == '\n' ||  line[0] == '\r')
+    // read IR
+
+    while (fgets(line, MAX, ir)) {
+
+        if (line[0] == '\n' || line[0] == '\r')
             continue;
 
-        char* quote_start = strchr(line, '\"'); // string
 
-        if (quote_start) {
+        char* quote_start;
+        if ((quote_start = strchr(line, '\"'))) { // if found string literal
 
             char* quote_end = strrchr(line, '\"');
 
             if (quote_end && quote_end > quote_start) {
 
-                for (char* p = quote_start; p < quote_end; p++) {
-
-                    if (*p == ' ') // easy traversal
-                        *p = '\x01'; // ascii(1) - start of heading
-                }
+                for (char* p = quote_start; p < quote_end; p++)
+                    *p = (*p == ' ') ? '\x01' : *p; // unprintable character - start of heading
             }
         }
 
-        char t1[MAX] = {0};
-        char t2[MAX] = {0};
-        char t3[MAX] = {0};
-        char t4[MAX] = {0};
-        char t5[MAX] = {0};
-        char t6[MAX] = {0};
+        // IR line args
+        char t1[MAX];
+        char t2[MAX];
+        char t3[MAX];
+        char t4[MAX];
+        char t5[MAX];
 
-        int n = sscanf(line, "%s %s %s %s %s %s", t1, t2, t3, t4, t5, t6); // at most 6 args in IR
+        int n = sscanf(line, "%s %s %s %s %s\n", t1, t2, t3, t4, t5);
 
-        for (int i = 0; i < strlen(t2); i++) {
+        for (int i = 0; i < strlen(line); i++) // restore spaces
+            line[i] = (line[i] == '\x01') ? ' ' : line[i];
 
-            if (t2[i] == '\x01')
-                t2[i] = ' ';
-        }
+        fprintf(s, "    ; %s", line); // IR instruction as comment
 
-        for (int i = 0; i < strlen(t3); i++) {
 
-            if (t3[i] == '\x01')
-                t3[i] = ' ';
-        }
+        if (n == 1 && !strncmp(t1, "NEWLINE", MAX)) { // newline
 
-        fputs("    ; ", s);
-
-        for (int i = 0; i < strlen(line); i++) {
-
-            if (line[i] == '\x01')
-                line[i] = ' ';
-        }
-
-        fputs(line, s);
-
-        if (n == 1 && !strncmp(t1, "NEWLINE", MAX)) { // (newline)
-
-            fputs("    adrp x0, empty@PAGE\n", s);
-            fputs("    add x0, x0, empty@PAGEOFF\n", s);
+            fputs("    adrp x0, l_empty@PAGE\n", s);
+            fputs("    add x0, x0, l_empty@PAGEOFF\n", s);
             fputs("    bl _puts\n\n", s);
 
-        } else if (n >= 2 && !strncmp(t1, "PRINT", MAX)) { // PRINT arg
+        } else if (n == 2 && !strncmp(t1, "PRINT", MAX)) { // print
 
-            if (is_string(t2, variables, var_types, varc, reg_types)) { // arg is a string
+            if (is_string(t2, variables, var_types, varc, reg_types)) { // string
 
-                if (t2[0] == '\"') { // if arg is a string literal
+                if (t2[0] == '\"') { // string literal
 
-                    strncpy(strings[stringc], t2, MAX);
+                    t2[strlen(t2) - 1] = NIL;
+                    strncpy(strings[stringc], t2 + 1, MAX);
 
-                    fprintf(s, "    adrp x0, msg%d@PAGE\n", stringc);
-                    fprintf(s, "    add x0, x0, msg%d@PAGEOFF\n", stringc++);
-                    fputs("    bl _printf\n\n", s);
+                    fprintf(s, "    adrp x0, msg%zu@PAGE\n", stringc);
+                    fprintf(s, "    add x0, x0, msg%zu@PAGEOFF\n", stringc++);
 
-                } else { // arg is a string variable
+                } else { // string variable
 
-                    char arm_reg[8];
+                    char arm_reg[MAX];
+                    int reg = fetch_operand(s, t2, phys_reg, arm_reg);
 
-                    if (t2[0] == '%') { // literal
-
-                        map_reg_arm(s, t2, arm_reg, 8);
+                    if (strncmp(arm_reg, "x0", MAX))
                         fprintf(s, "    mov x0, %s\n", arm_reg);
 
-                    } else { // variable
-
-                        fprintf(s, "    adrp x6, _%s@PAGE\n", t2);
-                        fprintf(s, "    add x6, x6, _%s@PAGEOFF\n", t2);
-                        fprintf(s, "    ldr x0, [x6]\n");
-                    }
-
-                    fputs("    bl _printf\n\n", s);
+                    free_reg_arm(reg);
                 }
 
-            } else { // if arg is a variable/literal
+                fputs("    bl _printf\n\n", s);
 
-                char arm_reg[8];
+            } else { // number
 
-                if (t2[0] == '%') // expression result
-                    map_reg_arm(s, t2, arm_reg, 8);
+                char arm_reg[16];
+                int reg = fetch_operand(s, t2, phys_reg, arm_reg);
 
-                else if (isalpha(t2[0]) || t2[0] == '_') { // variable
+                // Apple's ABI requires variadic args to be loaded onto stack
+                fprintf(s, "    str %s, [sp, #-16]!\n", arm_reg);
+                
+                free_reg_arm(reg);
 
-                    fprintf(s, "    adrp x6, _%s@PAGE\n", t2);
-                    fprintf(s, "    add x6, x6, _%s@PAGEOFF\n", t2);
-                    fprintf(s, "    ldr x8, [x6]\n");
-
-                    snprintf(arm_reg, 8, "x8");
-
-                } else // literal
-                    map_reg_arm(s, t2, arm_reg, 8);
-
-
+                // format string
                 fputs("    adrp x0, l_msg_int@PAGE\n", s);
                 fputs("    add x0, x0, l_msg_int@PAGEOFF\n", s);
-
-                // Apple's AAPCS64 ABI requires variadic args to be loaded onto stack
-                // NOT registers, unlike AArch64
-
-                // fprintf(s, "    mov x1, %s\n", arm_reg);
-                // fputs("    bl _printf\n\n", s);
-
-                fputs("    sub sp, sp, #16\n", s);
-                fprintf(s, "    str %s, [sp]\n", arm_reg);
+                
                 fputs("    bl _printf\n", s);
+                
+                // free the stack
                 fputs("    add sp, sp, #16\n\n", s);
             }
-        } 
-        
-        else if (n >= 3 && !strncmp(t2, "=", MAX)) { // assignment in TAC
-            
-            int is_rhs_string = is_string(t3, variables, var_types, varc, reg_types); // load string
 
-            if (t1[0] != '%') { // temporary reg
+        } else if (n >= 3 && !strncmp(t2, "=", MAX)) {
 
-                char* name = t1; // lhs
-                char* val_str = t3; // rhs
+            int is_rhs_string = is_string(t3, variables, var_types, varc, reg_types);
 
-                int v_idx = -1; // check if variable exists
+            // lhs
+            if (t1[0] != '%') { // global variable assignment
+
+                char* name = t1;
+                int v_idx = -1;
+
+                // check if global variable exists
                 for (int i = 0; i < varc; i++) {
 
                     if (!strncmp(variables[i], name, MAX)) {
@@ -219,146 +250,223 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
                     }
                 }
 
+                if (v_idx == -1) { // new
 
-                if (v_idx == -1) { // new variable
                     v_idx = varc++;
                     strncpy(variables[v_idx], name, MAX);
                 }
 
-                var_types[v_idx] = is_rhs_string; // check if new variable is a string
+                var_types[v_idx] = is_rhs_string;
 
-                char arm_reg[8];
 
-                if (val_str[0] == '\"') { // string literal
+                // rhs
+                char load_reg[MAX]; // loaded
+                size_t reg = 0;
 
-                    strncpy(strings[stringc], val_str, MAX);
+                if (t3[0] == '\"') { // string literal
 
-                    fprintf(s, "    adrp x8, msg%d@PAGE\n", stringc);
-                    fprintf(s, "    add x8, x8, msg%d@PAGEOFF\n", stringc++);
+                    t3[strlen(t3) - 1] = NIL;
+                    strncpy(strings[stringc], t3 + 1, MAX);
+                    strings[stringc][MAX - 1] = NIL;
 
-                    snprintf(arm_reg, 8, "x8");
+                    reg = map_reg_arm();
+                    reg = reg ? reg : 16;
 
-                } else if (isalpha(val_str[0]) || val_str[0] == '_') { // variable
+                    fprintf(s, "    adrp x%zu, msg%zu@PAGE\n", reg, stringc);
+                    fprintf(s, "    add x%zu, x%zu, msg%zu@PAGEOFF\n", reg, reg, stringc++);
+                    snprintf(load_reg, MAX, "x%zu", reg);
 
-                    fprintf(s, "    adrp x6, _%s@PAGE\n", val_str);
-                    fprintf(s, "    add x6, x6, _%s@PAGEOFF\n", val_str);
-                    fprintf(s, "    ldr x8, [x6]\n");
+                } else
+                    reg = fetch_operand(s, t3, phys_reg, load_reg);
 
-                    snprintf(arm_reg, 8, "x8");
+                size_t dest = map_reg_arm();
+                dest = dest ? dest : 17;
 
-                } else // literal
-                    map_reg_arm(s, val_str, arm_reg, 8);
+                fprintf(s, "    adrp x%zu, _%s@PAGE\n", dest, name);
+                fprintf(s, "    str %s, [x%zu, _%s@PAGEOFF]\n", load_reg, dest, name);
 
-                // save reg back to variable
-                fprintf(s, "    adrp x6, _%s@PAGE\n", name);
-                fprintf(s, "    add x6, x6, _%s@PAGEOFF\n", name);
-                fprintf(s, "    str %s, [x6]\n\n", arm_reg);
+                free_reg_arm(dest);
+                free_reg_arm(reg);
 
-            } else { // operation
+            } else { // arithmetic or temporary assignment
 
-                char hw_dest[8];
-                int d_idx; 
+                size_t dest;
+                sscanf(t1, "%%t%zu", &dest);
 
-                sscanf(t1, "%%t%d", &d_idx); // lhs
-                reg_types[d_idx] = is_rhs_string;
-                snprintf(hw_dest, 8, "x%d", d_idx + 9);
+                size_t reg = map_reg_arm();
+                char arm_reg[MAX];
 
-                if (!strncmp(t3, "ADD", MAX) || !strncmp(t3, "SUB", MAX) || 
-                    !strncmp(t3, "MUL", MAX) || !strncmp(t3, "DIV", MAX) || 
-                    !strncmp(t3, "REM", MAX) || !strncmp(t3, "POW", MAX)) {
-                    
-                    char arm_reg1[8], arm_reg2[8];
-                    map_reg_arm(s, t4, arm_reg1, 8);
-                    map_reg_arm(s, t5, arm_reg2, 7);
+                if (!reg) {
+
+                    phys_reg[dest] = -stack_offset;
+                    snprintf(arm_reg, MAX, "x16");
+
+                } else {
+
+                    if (dest >= MAX) {
+
+                        fprintf(stderr, "TRANSPILER ERROR: Register index %zu exceeds MAX = %d\n", dest, MAX - 1);
+                        exit(EX_DATAERR);
+                    }
+
+                    phys_reg[dest] = reg;
+                    snprintf(arm_reg, MAX, "x%zu", reg);
+                }
+
+                // arithmetic
+                if (!strncmp(t3, "ADD", MAX) || !strncmp(t3, "SUB", MAX) || !strncmp(t3, "MUL", MAX) ||
+                    !strncmp(t3, "DIV", MAX) || !strncmp(t3, "REM", MAX) || !strncmp(t3, "POW", MAX)) {
+
+                    char r1[16];
+                    int p1 = fetch_operand(s, t4, phys_reg, r1);
+
+                    char r2[16];
+                    int p2 = fetch_operand(s, t5, phys_reg, r2);
 
                     if (!strncmp(t3, "ADD", MAX))
-                        fprintf(s, "    add %s, %s, %s\n\n", hw_dest, arm_reg1, arm_reg2);
+                        fprintf(s, "    add %s, %s, %s\n", arm_reg, r1, r2);
 
                     else if (!strncmp(t3, "SUB", MAX))
-                        fprintf(s, "    sub %s, %s, %s\n\n", hw_dest, arm_reg1, arm_reg2);
+                        fprintf(s, "    sub %s, %s, %s\n", arm_reg, r1, r2);
 
                     else if (!strncmp(t3, "MUL", MAX))
-                        fprintf(s, "    mul %s, %s, %s\n\n", hw_dest, arm_reg1, arm_reg2);
+                        fprintf(s, "    mul %s, %s, %s\n", arm_reg, r1, r2);
 
                     else if (!strncmp(t3, "DIV", MAX))
-                        fprintf(s, "    sdiv %s, %s, %s\n\n", hw_dest, arm_reg1, arm_reg2);
+                        fprintf(s, "    sdiv %s, %s, %s\n", arm_reg, r1, r2);
 
                     else if (!strncmp(t3, "REM", MAX)) {
 
-                        fprintf(s, "    sdiv %s, %s, %s\n", hw_dest, arm_reg1, arm_reg2);
-                        fprintf(s, "    msub %s, %s, %s, %s\n\n", hw_dest, hw_dest, arm_reg2, arm_reg1);
+                        size_t p = map_reg_arm();
+                        p = p ? p : 17;
+
+                        fprintf(s, "    sdiv x%zu, %s, %s\n", p, r1, r2);
+                        fprintf(s, "    msub %s, x%zu, %s, %s\n", arm_reg, p, r2, r1);
+                        free_reg_arm(p);
 
                     } else if (!strncmp(t3, "POW", MAX)) {
 
-                        char base_reg[8], exp_reg[8];
+                        fprintf(s, "    scvtf d0, %s\n", r1);
+                        fprintf(s, "    scvtf d1, %s\n", r2);
 
-                        map_reg_arm(s, t4, base_reg, 6);
-                        map_reg_arm(s, t5, exp_reg, 7);
+                        // libc-pow clobbers scratch registers x8-x15
+                        // save on stack first
+                        fputs("    sub sp, sp, #64\n", s);
+                        fputs("    stp x8, x9, [sp, #0]\n", s);
+                        fputs("    stp x10, x11, [sp, #16]\n", s);
+                        fputs("    stp x12, x13, [sp, #32]\n", s);
+                        fputs("    stp x14, x15, [sp, #48]\n", s);
 
-                        fprintf(s, "    scvtf d0, %s\n", base_reg);
-                        fprintf(s, "    scvtf d1, %s\n", exp_reg);
                         fputs("    bl _pow\n", s);
-                        fprintf(s, "    fcvtzs %s, d0\n\n", hw_dest);
+
+                        // retrieve
+                        fputs("    ldp x8, x9, [sp, #0]\n", s);
+                        fputs("    ldp x10, x11, [sp, #16]\n", s);
+                        fputs("    ldp x12, x13, [sp, #32]\n", s);
+                        fputs("    ldp x14, x15, [sp, #48]\n", s);
+                        fputs("    add sp, sp, #64\n", s);
+
+                        fprintf(s, "    fcvtzs %s, d0\n", arm_reg);
                     }
 
-                // rhs
+                    free_reg_arm(p1);
+                    free_reg_arm(p2);
 
-                } else if (isalpha(t3[0]) || t3[0] == '_') { // variable
+                } else if (t3[0] == '\"') { // assign string literal to temporary register
 
-                    char* var_name = t3;
-
-                    fprintf(s, "    adrp x6, _%s@PAGE\n", var_name);
-                    fprintf(s, "    add x6, x6, _%s@PAGEOFF\n", var_name);
-                    fprintf(s, "    ldr %s, [x6]\n\n", hw_dest);
-
-                } else if (t3[0] == '\"') { // string literal
-
+                    t3[strlen(t3) - 1] = NIL;
                     strncpy(strings[stringc], t3, MAX);
+                    strings[stringc][MAX - 1] = NIL;
 
-                    fprintf(s, "    adrp %s, msg%d@PAGE\n", hw_dest, stringc);
-                    fprintf(s, "    add %s, %s, msg%d@PAGEOFF\n\n", hw_dest, hw_dest, stringc++);
+                    size_t dest;
+                    sscanf(arm_reg, "x%zu", &dest);
 
-                } else // literal
-                    map_reg_arm(s, t3, hw_dest, d_idx + 9);
+                    fprintf(s, "    adrp x%zu, msg%zu@PAGE\n", dest, stringc);
+                    fprintf(s, "    add x%zu, x%zu, msg%zu@PAGEOFF\n", dest, dest, stringc++);
+
+                } else { // assign variable to temporary register
+
+                    char load_reg[MAX];
+                    size_t reg = fetch_operand(s, t3, phys_reg, load_reg);
+
+                    if (strncmp(arm_reg, load_reg, MAX))
+                        fprintf(s, "    mov %s, %s\n", arm_reg, load_reg);
+
+                    free_reg_arm(reg);
+                }
+
+                // store spillover onto stack
+
+                if (!reg)
+                    fprintf(s, "    str x16, [x29, #-%zu]\n", stack_offset);
+                fputc('\n', s);
             }
         }
     }
 
+
+
     // epilogue
     fputs("; === EPILOGUE ===\n", s);
-    fputs("    mov x0, #0\n", s);
-    fputs("    ldp x29, x30, [sp], #16\n", s);
-    fputs("    ret\n\n", s);
+    fputs("mov x0, #0\n", s);
+    fputs("mov sp, x29\n", s);
+    fputs("ldp x29, x30, [sp], #16\n", s);
+    fputs("ret\n\n", s);
 
-    // global variables
+
+
+    // data section
+
     if (varc > 0) {
-        fputs("; === DATA SECTION ===\n", s);
+
+        fputs("\n; === GLOBAL VARIABLES ===\n", s);
         fputs(".section __DATA,__data\n", s);
         fputs(".align 3\n", s);
-        for (int i = 0; i < varc; i++)
+
+        for (size_t i = 0; i < varc; i++) 
             fprintf(s, "_%s: .quad 0\n", variables[i]);
+
         fputc('\n', s);
     }
 
-    // c strings
-    fputs("; === STRING LITERALS ===\n", s);
-    fputs(".section __TEXT,__cstring,cstring_literals\n", s);
-    fputs("l_msg_int: .asciz \"%lld\"\n", s); 
-    fputs("empty: .asciz \"\"\n", s);
-    
-    if (stringc > 0) {
+    // c string literals
 
-        for (int i = 0; i < stringc; i++)
-            fprintf(s, "msg%d: .asciz %s\n", i, strings[i]);
+    fputs("\n; === C STRINGS ===\n", s);
+    fputs(".section __TEXT,__cstring,cstring_literals\n", s);
+    fputs("l_msg_int: .asciz \"%lld\"\n", s);
+    fputs("l_empty: .asciz \"\"\n", s);
+
+    for (size_t i = 0; i < stringc; i++) {
+
+        size_t k = 0;
+
+        for (size_t j = 0; strings[i][j]; j++) {
+
+            if (strings[i][j] == '\x01')
+                strings[i][k++] = ' ';
+
+            // Apple's ABI requires non-escaped ' and ?
+            else if (strings[i][j] == '\\' && (strings[i][j+1] == '\?' || strings[i][j+1] == '\''))
+                strings[i][k++] = strings[i][++j];
+
+            else
+                strings[i][k++] = strings[i][j];
+        }
+        strings[i][k] = NIL;
+
+        fprintf(s, "msg%zu: .asciz \"%s\"\n", i, strings[i]);
     }
 }
+
+
+
+
+#if 0
 
 static inline void map_reg_x86(FILE* s, const char* op, char* out_reg, const char* scratch_reg) {
     if (op[0] == '%') {
         int reg_idx;
         sscanf(op, "%%t%d", &reg_idx);
-        // Map IR registers to r10-r15, then r8-r9 etc. 
-        // For simplicity, we'll use r10-r15 as volatile scratch
         snprintf(out_reg, 16, "r%d", (reg_idx % 6) + 10); 
     } else {
         long long val = atoll(op);
@@ -367,7 +475,7 @@ static inline void map_reg_x86(FILE* s, const char* op, char* out_reg, const cha
     }
 }
 
-
+// TODO: fix multiline strings and strings with quotes inside them
 void transpile_nasm_x86_64(FILE* ir, FILE* s) {
 
     char line[MAX];
@@ -650,7 +758,7 @@ void transpile_nasm_x86_64(FILE* ir, FILE* s) {
     }
 }
 
-
+#endif
 
 
 

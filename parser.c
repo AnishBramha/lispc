@@ -69,7 +69,7 @@ ASTNode* unsafe_build(FILE* src, TokenInfo* tokenInfo) { // recursive descent
 
             if (next->token == END_OF_FILE) {
 
-                fprintf(stderr, "SYNTAX ERROR: Unterminated list missing `)` due to unexpected `EOF` on line %zu\n", next->line);
+                fprintf(stderr, "SYNTAX ERROR: Unterminated list [missing `)`] due to unexpected `EOF` on line %zu\n", next->line);
                 free(next);
                 freeAST(true, node);
                 exit(EX_DATAERR);

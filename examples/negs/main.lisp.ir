@@ -1,25 +1,19 @@
 x = 5
 
-%t0 = x
-%t1 = SUB 0 %t0
-%t2 = x
-%t3 = ADD %t1 %t2
-PRINT %t3
+%t0 = SUB 0 x
+%t1 = ADD %t0 x
+PRINT %t1
 PRINT "\n"
 
-%t0 = x
-%t1 = SUB %t0 1
-x = %t1
+%t0 = SUB x 1
+x = %t0
 
-%t0 = x
-PRINT %t0
+PRINT x
 
 NEWLINE
 
-%t0 = x
-%t1 = SUB 0 %t0
-%t2 = x
-%t3 = ADD %t1 %t2
-PRINT %t3
+%t0 = SUB 0 x
+%t1 = ADD %t0 x
+PRINT %t1
 PRINT "\n"
 
