@@ -1,0 +1,33 @@
+x = 1
+
+@8 = 1
+%t0 = ADD x @8
+PRINT %t0
+PRINT "\n"
+
+@8 = 100
+@16 = 2
+%t0 = ADD @8 @16
+PRINT %t0
+NEWLINE
+
+@8 = 3
+@16 = 4
+PRINT "a^2 + b^2 = "
+%t0 = POW @8 2
+PRINT %t0
+PRINT " + "
+%t1 = POW @16 2
+PRINT %t1
+PRINT " = "
+%t2 = POW @8 2
+%t3 = POW @16 2
+%t4 = ADD %t2 %t3
+PRINT %t4
+
+NEWLINE
+
+@8 = "Ascii"
+PRINT @8
+PRINT "\n"
+

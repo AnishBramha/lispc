@@ -81,7 +81,7 @@ ASTNode* unsafe_build(FILE* src, TokenInfo* tokenInfo) { // recursive descent
     } else if (expect(true, tokenInfo, 
 
                 PLUS, MINUS, STAR, SLASH, PERCENT, CARET, SEMICOLON,
-                PRINT, IDENTIFIER, INT, FLOAT, STRING, DEFVAR, DEFUN, NEWLINE
+                PRINT, IDENTIFIER, INT, FLOAT, STRING, DEFVAR, DEFUN, LET, NEWLINE
 
                 )) { // atom
 

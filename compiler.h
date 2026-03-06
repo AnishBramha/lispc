@@ -39,7 +39,10 @@ char* unsafe_fold_arithmetic(FILE* ir, ASTNode*, const char* op);
 char* unsafe_compile_print(FILE* ir, ASTNode*);
 char* unsafe_compile_newline(FILE* ir);
 char* unsafe_compile_defvar(FILE* ir, ASTNode*);
+char* unsafe_compile_let(FILE* ir, ASTNode*);
 char* unsafe_compile_defun(FILE* ir, ASTNode*);
+char* unsafe_compile_string(ASTNode*);
+char* unsafe_compile_symbol(ASTNode*);
 
 
 

@@ -16,7 +16,50 @@ Symbol* var_namespace = NULL;
 Symbol* func_namespace = NULL;
 
 static size_t reg_idx = 0;
-// static size_t global_offset = 0;
+
+static size_t scope_depth = 0;
+static size_t stack_offset = 0;
+
+
+static inline void enter_scope(void) {
+
+    scope_depth++;
+}
+
+
+static inline void exit_scope(size_t sibling_offset) {
+
+    scope_depth--;
+
+    for (int i = arr_len(var_namespace) - 1; i >= 0; i--) {
+
+        if (var_namespace[i].depth <= scope_depth)
+            break;
+
+        var_namespace[i].type = DEAD;
+    }
+
+    stack_offset = sibling_offset;
+}
+
+
+static inline size_t push_local_var(const char* name) {
+
+    stack_offset += 8;
+
+    Symbol var = {
+
+        .name = strdup(name),
+        .offset = stack_offset,
+        .type = LOCAL_VAR,
+        .depth = scope_depth,
+        .arity = 0,
+    };
+
+    arr_push(var_namespace, var);
+    return stack_offset;
+}
+
 
 
 void compile(FILE* src, FILE* ir) {
@@ -107,12 +150,11 @@ char* unsafe_compile_list(FILE* ir, ASTNode* node) {
 
         case DEFVAR:  return unsafe_compile_defvar(ir, node);
         case DEFUN:   return unsafe_compile_defun(ir, node);
+        case LET:     return unsafe_compile_let(ir, node);
 
         default:      return NULL;
     }
 }
-
-
 
 
 char* unsafe_compile_atom(ASTNode* node) {
@@ -120,56 +162,11 @@ char* unsafe_compile_atom(ASTNode* node) {
     if (!node || !node->current)
         return NULL;
 
-    if (node->current->token == STRING) { // add stripped quotes back on to string literals
+    if (node->current->token == STRING)
+        return unsafe_compile_string(node);
 
-        size_t len = strlen(node->current->lexeme);
-        char* str = (char*)malloc(MAX);
-        
-        size_t j = 0;
-        str[j++] = '\"'; 
-        
-        for (size_t i = 0; i < len && j < MAX - 3; i++) { 
-
-            switch (node->current->lexeme[i]) {
-
-                case '\n':
-
-                    str[j++] = '\\';
-                    str[j++] = 'n';
-                    break;
-                    
-                case '\t':
-
-                    str[j++] = '\\';
-                    str[j++] = 't';
-                    break;
-                    
-                case '\r':
-
-                    str[j++] = '\\';
-                    str[j++] = 'r';
-                    break;
-
-
-                case '\'':
-                case '\"':
-                case '\?':
-                case '\\':
-
-                    str[j++] = '\\';
-                    str[j++] = node->current->lexeme[i];
-                    break;
-
-                default:
-                    str[j++] = node->current->lexeme[i];
-            }
-        }
-
-        str[j++] = '\"'; 
-        str[j] = NIL;
-
-        return str;
-    }
+    if (node->current->token == IDENTIFIER)
+        return unsafe_compile_symbol(node);
 
     return strdup(node->current->lexeme);
 }
@@ -322,6 +319,17 @@ char* unsafe_compile_defvar(FILE* ir, ASTNode* node) {
                 exit(EX_DATAERR);
             }
 
+            Symbol var = {
+
+                .name = strdup(node->children[1]->current->lexeme),
+                .offset = 0,
+                .type = GLOBAL_VAR,
+                .depth = 0,
+                .arity = 0
+            };
+
+            arr_push(var_namespace, var);
+
             fprintf(ir, "%s = %s\n", node->children[1]->current->lexeme, val);
             free(val);
 
@@ -337,16 +345,162 @@ char* unsafe_compile_defvar(FILE* ir, ASTNode* node) {
 }
 
 
+char* unsafe_compile_let(FILE* ir, ASTNode* node) {
+
+    if (arr_len(node->children) < 2) {
+
+        fprintf(stderr, "COMPILATION ERROR: Bindings list missing for `let` on line %zu\n", node->children[0]->current->line);
+        freeAST(true, node);
+        exit(EX_DATAERR);
+    }
+
+    enter_scope();
+    size_t frame = stack_offset;
+
+    char* name = NULL;
+    char* val = NULL;
+
+    // bindings
+    for (size_t i = 0; i < arr_len(node->children[1]->children); i++) {
+
+        // (let ((name val)) ...)
+        if (node->children[1]->children[i]->children) {
+
+            if (arr_len(node->children[1]->children[i]->children) != 2 || 
+                node->children[1]->children[i]->children[0]->current->token != IDENTIFIER) {
+
+                fprintf(stderr, "COMPILATION ERROR: Illegal `let` binding on line %zu\n", node->children[1]->children[i]->current->line);
+                freeAST(true, node);
+                exit(EX_DATAERR);
+            }
+
+            name = node->children[1]->children[i]->children[0]->current->lexeme;
+            val = unsafe_compile_node(ir, node->children[1]->children[i]->children[1]);
+
+        } else { // (let (identifier) ...)
+
+            if (node->children[1]->current->token != IDENTIFIER) {
+
+                fprintf(stderr, "COMPILATION ERROR: Illegal l-value in `let` binding on line %zu\n", node->children[1]->current->line);
+                freeAST(true, node);
+                exit(EX_DATAERR);
+            }
+
+            name = node->children[1]->children[i]->current->lexeme;
+            val = strdup("0");
+        }
+
+        size_t offset = push_local_var(name);
+        fprintf(ir, "@%zu = %s\n", offset, val);
+        free(val);
+    }
+
+
+    // body
+
+    char* reg = NULL;
+    for (size_t i = 2; i < arr_len(node->children); i++) {
+
+        if (reg)
+            free(reg);
+
+        reg = unsafe_compile_node(ir, node->children[i]);
+    }
+
+    exit_scope(frame);
+    return reg;
+}
+
+
 char* unsafe_compile_defun(FILE* ir, ASTNode* node) {
 
     (void)ir;
     (void)node;
 
-    // TODO
     return NULL;
+}
+
+
+char* unsafe_compile_string(ASTNode* node) {
+
+        size_t len = strlen(node->current->lexeme);
+        char* str = (char*)malloc(MAX);
+        
+        size_t j = 0;
+        str[j++] = '\"';  // add stripped quotes back on to string literals
+        
+        for (size_t i = 0; i < len && j < MAX - 3; i++) { 
+
+            switch (node->current->lexeme[i]) {
+
+                case '\n':
+
+                    str[j++] = '\\';
+                    str[j++] = 'n';
+                    break;
+                    
+                case '\t':
+
+                    str[j++] = '\\';
+                    str[j++] = 't';
+                    break;
+                    
+                case '\r':
+
+                    str[j++] = '\\';
+                    str[j++] = 'r';
+                    break;
+
+
+                case '\'':
+                case '\"':
+                case '\?':
+                case '\\':
+
+                    str[j++] = '\\';
+                    str[j++] = node->current->lexeme[i];
+                    break;
+
+                default:
+                    str[j++] = node->current->lexeme[i];
+            }
+        }
+
+        str[j++] = '\"'; 
+        str[j] = NIL;
+
+        return str;
+}
+
+
+
+char* unsafe_compile_symbol(ASTNode* node) {
+
+    for (int i = arr_len(var_namespace) - 1; i >= 0; i--) {
+
+        if (var_namespace[i].type != DEAD && !strncmp(var_namespace[i].name, node->current->lexeme, MAX)) {
+
+            char* retrieve_sym = (char*)malloc(MAX);
+
+            if (var_namespace[i].type == LOCAL_VAR)
+                snprintf(retrieve_sym, MAX, "@%zu", var_namespace[i].offset);
+
+            else // GLOBAL_VAR
+                snprintf(retrieve_sym, MAX, "%s", var_namespace[i].name);
+
+            return retrieve_sym;
+        }
+    }
+
+    fprintf(stderr, "COMPILATION ERROR: Undefined symbol `%s` on line %zu\n", node->current->lexeme, node->current->line);
+    freeAST(true, node);
+    exit(EX_DATAERR);
 }
 
 
 
 
 
+
+
+  

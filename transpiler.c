@@ -11,7 +11,7 @@ static size_t stack_offset = 0;
 
 static inline int map_reg_arm(void) {
 
-    // scratch registers: x9 - x15
+    // scratch registers: x9 - x15 -> CLOBBERED!!
     // indirect result register: x8 -> use if all scratch registers overflow
     // if both overflow, spill on to the stack
 
@@ -48,7 +48,7 @@ static inline void free_reg_arm(int reg_num) {
 
 static inline size_t fetch_operand(FILE* s, const char* op, int phys_reg[], char* out_reg) {
     
-    if (op[0] == '%') {
+    if (op[0] == '%') { // temporary register
 
         size_t idx;
         sscanf(op, "%%t%zu", &idx);
@@ -68,6 +68,23 @@ static inline size_t fetch_operand(FILE* s, const char* op, int phys_reg[], char
         snprintf(out_reg, 16, "x%zu", reg);
         return reg;
     }
+
+    
+    if (op[0] == '@') { // local variable
+
+        size_t offset;
+        sscanf(op, "@%zu", &offset);
+
+        size_t reg = map_reg_arm();
+        reg = reg ? reg : 16;
+
+        fprintf(s, "    ldr x%zu, [x29, #-%zu]\n", reg, offset);
+        snprintf(out_reg, 16, "x%zu", reg);
+        return reg;
+    }
+
+
+    // global variable
 
     size_t reg = map_reg_arm();
     reg = reg ? reg : 16;
@@ -235,7 +252,35 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
             int is_rhs_string = is_string(t3, variables, var_types, varc, reg_types);
 
             // lhs
-            if (t1[0] != '%') { // global variable assignment
+
+            if (t1[0] == '@') { // local variable
+
+                size_t offset;
+                sscanf(t1, "@%zu", &offset);
+
+                char load_reg[MAX]; 
+                size_t reg = 0;
+
+                if (t3[0] == '\"') { // string literal
+                    
+                    t3[strlen(t3) - 1] = NIL;
+                    strncpy(strings[stringc], t3 + 1, MAX);
+                    strings[stringc][MAX - 1] = NIL;
+
+                    reg = map_reg_arm();
+                    reg = reg ? reg : 16;
+
+                    fprintf(s, "    adrp x%zu, msg%zu@PAGE\n", reg, stringc);
+                    fprintf(s, "    add x%zu, x%zu, msg%zu@PAGEOFF\n", reg, reg, stringc++);
+                    snprintf(load_reg, MAX, "x%zu", reg);
+
+                } else
+                    reg = fetch_operand(s, t3, phys_reg, load_reg);
+
+                fprintf(s, "    str %s, [x29, #-%zu]\n\n", load_reg, offset);
+                free_reg_arm(reg);
+
+            } else if (t1[0] != '%') { // global variable assignment
 
                 char* name = t1;
                 int v_idx = -1;
@@ -302,12 +347,6 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
                     snprintf(arm_reg, MAX, "x16");
 
                 } else {
-
-                    if (dest >= MAX) {
-
-                        fprintf(stderr, "TRANSPILER ERROR: Register index %zu exceeds MAX = %d\n", dest, MAX - 1);
-                        exit(EX_DATAERR);
-                    }
 
                     phys_reg[dest] = reg;
                     snprintf(arm_reg, MAX, "x%zu", reg);
