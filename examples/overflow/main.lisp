@@ -1,0 +1,4 @@
+(defun foo () (foo))
+
+(foo)
+

@@ -7,7 +7,8 @@
 
 static bool free_bitmap[8] = {true, true, true, true, true, true, true, true};
 
-static size_t stack_offset = 0;
+static size_t stack_offset = 256;
+static size_t print_idx = 0;
 
 
 static inline int map_reg_arm(void) {
@@ -56,16 +57,10 @@ static inline size_t fetch_operand(FILE* s, const char* op, int phys_reg[], char
 
         int loc = phys_reg[idx];
         
-        if (loc > 0) {
-
-            snprintf(out_reg, 16, "x%d", loc);
-            return loc; 
-        }
-        
         size_t reg = map_reg_arm();
         reg = reg ? reg : 16;
         
-        fprintf(s, "    ldr x%zu, [x29, #%d]\n", reg, loc);
+        fprintf(s, "    ldp x%zu, x1, [x29, #%d]\n", reg, loc);
         snprintf(out_reg, 16, "x%zu", reg);
         return reg;
     }
@@ -79,7 +74,7 @@ static inline size_t fetch_operand(FILE* s, const char* op, int phys_reg[], char
         size_t reg = map_reg_arm();
         reg = reg ? reg : 16;
 
-        fprintf(s, "    ldr x%zu, [x29, #-%zu]\n", reg, offset);
+        fprintf(s, "    ldp x%zu, x1, [x29, #-%zu]\n", reg, offset);
         snprintf(out_reg, 16, "x%zu", reg);
         return reg;
     }
@@ -93,10 +88,14 @@ static inline size_t fetch_operand(FILE* s, const char* op, int phys_reg[], char
     if (isalpha(op[0]) || op[0] == '_') {
 
         fprintf(s, "    adrp x%zu, _%s@PAGE\n", reg, op);
-        fprintf(s, "    ldr x%zu, [x%zu, _%s@PAGEOFF]\n", reg, reg, op);
+        fprintf(s, "    add x%zu, x%zu, _%s@PAGEOFF\n", reg, reg, op);
+        fprintf(s, "    ldp x%zu, x1, [x%zu]\n", reg, reg);
 
-    } else
+    } else {
+
         fprintf(s, "    mov x%zu, #%lld\n", reg, atoll(op));
+        fputs("    mov x1, #0\n", s);
+    }
 
     snprintf(out_reg, 16, "x%zu", reg);
     return reg;
@@ -170,7 +169,7 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
     fputs("    stp x29, x30, [sp, #-16]!\n", out);
     fputs("    mov x29, sp\n", out);
     fputs("    ; STACK SPILL BUFFER\n", out);
-    fputs("    sub sp, sp, #4096\n\n", out);
+    fputs("    sub sp, sp, #512\n\n", out);
 
 
     // function buffer
@@ -216,12 +215,13 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
             out = buf;
             fprintf(out, "; %s", line); // IR instruction as comment
         
+        } else if (n == 2 && !strncmp(t1, "END", MAX)) {
+
+            fprintf(out, "; %s\n", line); // IR instruction as comment
+            out = s;
+
         } else
             fprintf(out, "    ; %s", line); // IR instruction as comment
-
-
-        if (n == 2 && !strncmp(t1, "END", MAX))
-            out = s;
 
 
         if (n == 1 && !strncmp(t1, "NEWLINE", MAX)) { // newline
@@ -238,11 +238,11 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
             fputs("; === PROLOGUE ===\n", out);
             fputs("    stp x29, x30, [sp, #-16]!\n", out);
             fputs("    mov x29, sp\n", out);
-            fputs("    sub sp, sp, #4096\n", out);
+            fputs("    sub sp, sp, #512\n", out);
 
             frame = stack_offset;
             memcpy(frame_reg, free_bitmap, sizeof(free_bitmap));
-            stack_offset = 0;
+            stack_offset = 256;
 
             for (size_t i = 0; i < 8; i++)
                 free_bitmap[i] = true;
@@ -252,7 +252,79 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
             stack_offset = frame;
             memcpy(free_bitmap, frame_reg, sizeof(frame_reg));
 
-        } else if (n == 3 && !strncmp(t1, "ARG", MAX)) {
+        } else if (n == 2 && !strncmp(t1, "RET", MAX)) {
+
+            fputs("; === EPILOGUE ===\n", out);
+
+            if (t2[0] == '\"') {
+
+                t2[strlen(t2) - 1] = NIL;
+                strncpy(strings[stringc], t2 + 1, MAX);
+                strings[stringc][MAX - 1] = NIL;
+
+                fprintf(out, "    adrp x0, msg%zu@PAGE\n", stringc);
+                fprintf(out, "    add x0, x0, msg%zu@PAGEOFF\n", stringc++);
+
+                fputs("    mov x1, #1\n", out);
+
+            } else {
+
+                char arm_reg[MAX];
+                int reg = fetch_operand(out, t2, phys_reg, arm_reg);
+
+                if (strncmp(arm_reg, "x0", MAX))
+                    fprintf(out, "    mov x0, %s\n", arm_reg);
+
+                free_reg_arm(reg);
+            }
+
+            fputs("    mov sp, x29\n", out);
+            fputs("    ldp x29, x30, [sp], #16\n", out);
+            fputs("    ret\n", out);
+
+        } else if (n == 2 && !strncmp(t1, "PRINT", MAX)) { // print
+
+            if (t2[0] == '\"') { 
+
+                t2[strlen(t2) - 1] = NIL;
+                strncpy(strings[stringc], t2 + 1, MAX);
+                strings[stringc][MAX - 1] = NIL;
+                
+                fprintf(out, "    adrp x0, msg%zu@PAGE\n", stringc);
+                fprintf(out, "    add x0, x0, msg%zu@PAGEOFF\n", stringc++);
+                fputs("    mov x1, #1\n", out);
+
+            } else if (isdigit(t2[0]) || t2[0] == '-') {
+
+                fprintf(out, "    mov x0, #%lld\n", atoll(t2));
+                fputs("    mov x1, #0\n", out);
+
+            } else {
+
+                char arm_reg[MAX];
+                int reg = fetch_operand(out, t2, phys_reg, arm_reg);
+                fprintf(out, "    mov x0, %s\n", arm_reg);
+                free_reg_arm(reg);
+            }
+
+            fprintf(out, "    cmp x1, #1\n");
+            fprintf(out, "    beq .L_print%zu\n", ++print_idx);
+
+            fputs("    mov x1, x0\n", out);
+            fputs("    adrp x0, l_msg_int@PAGE\n", out);
+            fputs("    add x0, x0, l_msg_int@PAGEOFF\n", out);
+            fputs("    str x1, [sp, #-16]!\n", out);
+            fputs("    bl _printf\n", out);
+            fputs("    add sp, sp, #16\n", out);
+            fprintf(out, "    b .L_print_end%zu\n", print_idx);
+
+            fprintf(out, ".L_print%zu:\n", print_idx);
+            fputs("    bl _printf\n", out);
+
+            fprintf(out, ".L_print_end%zu:\n\n", print_idx);
+
+
+        } else if (n == 3 && !strncmp(t1, "PARAM", MAX)) {
 
             size_t offset;
             sscanf(t2, "@%zu", &offset);
@@ -260,68 +332,98 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
             size_t arg_idx;
             sscanf(t3, "%zu", &arg_idx);
 
-            fprintf(out, "    str x%zu, [x29, #-%zu]\n\n", arg_idx, offset);
+            if (arg_idx < 4)
+                fprintf(out, "    stp x%zu, x%zu, [x29, #-%zu]\n\n", arg_idx * 2, (arg_idx * 2) + 1, offset);
 
-        } else if (n == 2 && !strncmp(t1, "RET", MAX)) {
+            else { 
+
+                size_t stack_arg_offset = 16 + ((arg_idx - 4) * 16);
+
+                fprintf(out, "    ldp x16, x17, [x29, #%zu]\n", stack_arg_offset);
+                fprintf(out, "    stp x16, x17, [x29, #-%zu]\n\n", offset);
+            }
+
+        } else if (n == 3 && !strncmp(t1, "ARG", MAX)) {
+
+            size_t arg_idx;
+            sscanf(t2, "%zu", &arg_idx);
 
             char arm_reg[MAX];
-            int reg = fetch_operand(out, t2, phys_reg, arm_reg);
 
-            fputs("; === EPILOGUE ===\n", out);
+            // fetch argument
 
-            if (strncmp(arm_reg, "x0", MAX))
-                fprintf(out, "    mov x0, %s\n", arm_reg);
-
-            fputs("    mov sp, x29\n", out);
-            fputs("    ldp x29, x30, [sp], #16\n", out);
-            fputs("    ret\n\n", out);
-
-            free_reg_arm(reg);
-
-        } else if (n == 2 && !strncmp(t1, "PRINT", MAX)) { // print
-
-            if (is_string(t2, variables, var_types, varc, reg_types, local_types)) { // string
-
-                if (t2[0] == '\"') { // string literal
-
-                    t2[strlen(t2) - 1] = NIL;
-                    strncpy(strings[stringc], t2 + 1, MAX);
-
-                    fprintf(out, "    adrp x0, msg%zu@PAGE\n", stringc);
-                    fprintf(out, "    add x0, x0, msg%zu@PAGEOFF\n", stringc++);
-
-                } else { // string variable
-
-                    char arm_reg[MAX];
-                    int reg = fetch_operand(out, t2, phys_reg, arm_reg);
-
-                    if (strncmp(arm_reg, "x0", MAX))
-                        fprintf(out, "    mov x0, %s\n", arm_reg);
-
-                    free_reg_arm(reg);
-                }
-
-                fputs("    bl _printf\n\n", out);
-
-            } else { // number
-
-                char arm_reg[16];
-                int reg = fetch_operand(out, t2, phys_reg, arm_reg);
-
-                // Apple's ABI requires variadic args to be loaded onto stack
-                fprintf(out, "    str %s, [sp, #-16]!\n", arm_reg);
+            if (t3[0] == '\"') { 
                 
+                t3[strlen(t3) - 1] = NIL;
+                strncpy(strings[stringc], t3 + 1, MAX);
+                strings[stringc][MAX - 1] = NIL;
+
+                size_t reg = map_reg_arm();
+                reg = reg ? reg : 16;
+
+                fprintf(s, "    adrp x%zu, msg%zu@PAGE\n", reg, stringc);
+                fprintf(s, "    add x%zu, x%zu, msg%zu@PAGEOFF\n", reg, reg, stringc++);
+                snprintf(arm_reg, MAX, "x%zu", reg);
+                
+                fputs("    mov x1, #1\n", s);
                 free_reg_arm(reg);
 
-                // format string
-                fputs("    adrp x0, l_msg_int@PAGE\n", out);
-                fputs("    add x0, x0, l_msg_int@PAGEOFF\n", out);
+            } else {
                 
-                fputs("    bl _printf\n", out);
-                
-                // free the stack
-                fputs("    add sp, sp, #16\n\n", out);
+                size_t reg = fetch_operand(s, t3, phys_reg, arm_reg);
+                free_reg_arm(reg);
             }
+
+            // Apple's ABI requires first 8 arguments to a function call
+            // to be loaded onto registers x0-x7
+            // and extra arguments to be loaded onto stack
+
+            // EDIT: using fat pointers halves the number of registers
+            // used for passing arguments
+
+
+            if (arg_idx < 4) { // was 8 before fat pointers
+
+                fprintf(s, "    mov x%zu, %s\n", arg_idx * 2, arm_reg);
+                fprintf(s, "    mov x%zu, x1\n", (arg_idx * 2) + 1);
+            }
+
+            else // Apple's ABI requires 16-bit alignment, so 8 bytes added padding
+                fprintf(s, "    stp %s, x1, [sp, #-16]!\n", arm_reg);
+
+        } else if (n == 5 && !strncmp(t3, "CALL", MAX)) {
+
+            size_t args;
+            sscanf(t5, "%zu", &args);
+
+            // save clobbered scratch registers onto stack
+            fputs("    sub sp, sp, #64\n", out);
+            fputs("    stp x8, x9, [sp, #0]\n", out);
+            fputs("    stp x10, x11, [sp, #16]\n", out);
+            fputs("    stp x12, x13, [sp, #32]\n", out);
+            fputs("    stp x14, x15, [sp, #48]\n", out);
+
+            // call and jump
+            fprintf(out, "    bl %s\n", t4);
+
+            // retrieve clobbered registers from stack
+            fputs("    ldp x8, x9, [sp, #0]\n", out);
+            fputs("    ldp x10, x11, [sp, #16]\n", out);
+            fputs("    ldp x12, x13, [sp, #32]\n", out);
+            fputs("    ldp x14, x15, [sp, #48]\n", out);
+            fputs("    add sp, sp, #64\n\n", out);
+
+            // free spillover stack space
+            if (args > 8)
+                fprintf(out, "    add sp, sp, #%zu\n", (args - 8) * 16);
+
+            // return value
+            size_t res;
+            sscanf(t1, "%%t%zu", &res);
+
+            stack_offset += 16;
+            phys_reg[res] = -stack_offset;
+            fprintf(out, "    stp x0, x1, [x29, #-%zu]\n\n", stack_offset);
 
         } else if (n >= 3 && !strncmp(t2, "=", MAX)) {
 
@@ -351,11 +453,12 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
                     fprintf(out, "    adrp x%zu, msg%zu@PAGE\n", reg, stringc);
                     fprintf(out, "    add x%zu, x%zu, msg%zu@PAGEOFF\n", reg, reg, stringc++);
                     snprintf(load_reg, MAX, "x%zu", reg);
+                    fputs("    mov x1, #1\n", out);
 
                 } else
                     reg = fetch_operand(out, t3, phys_reg, load_reg);
 
-                fprintf(out, "    str %s, [x29, #-%zu]\n\n", load_reg, offset);
+                fprintf(out, "    stp %s, x1, [x29, #-%zu]\n\n", load_reg, offset);
                 free_reg_arm(reg);
 
             } else if (t1[0] != '%') { // global variable assignment
@@ -398,6 +501,7 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
                     fprintf(out, "    adrp x%zu, msg%zu@PAGE\n", reg, stringc);
                     fprintf(out, "    add x%zu, x%zu, msg%zu@PAGEOFF\n", reg, reg, stringc++);
                     snprintf(load_reg, MAX, "x%zu", reg);
+                    fputs("    mov x1, #1\n", out);
 
                 } else
                     reg = fetch_operand(out, t3, phys_reg, load_reg);
@@ -406,7 +510,8 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
                 dest = dest ? dest : 17;
 
                 fprintf(out, "    adrp x%zu, _%s@PAGE\n", dest, name);
-                fprintf(out, "    str %s, [x%zu, _%s@PAGEOFF]\n", load_reg, dest, name);
+                fprintf(out, "    add x%zu, x%zu, _%s@PAGEOFF\n", dest, dest, name);
+                fprintf(out, "    stp %s, x1, [x%zu]\n", load_reg, dest);
 
                 free_reg_arm(dest);
                 free_reg_arm(reg);
@@ -416,19 +521,11 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
                 size_t dest;
                 sscanf(t1, "%%t%zu", &dest);
 
-                size_t reg = map_reg_arm();
                 char arm_reg[MAX];
 
-                if (!reg) {
-
-                    phys_reg[dest] = -stack_offset;
-                    snprintf(arm_reg, MAX, "x16");
-
-                } else {
-
-                    phys_reg[dest] = reg;
-                    snprintf(arm_reg, MAX, "x%zu", reg);
-                }
+                stack_offset += 16;
+                phys_reg[dest] = -stack_offset;
+                snprintf(arm_reg, MAX, "x16");
 
                 // arithmetic
                 if (!strncmp(t3, "ADD", MAX) || !strncmp(t3, "SUB", MAX) || !strncmp(t3, "MUL", MAX) ||
@@ -512,11 +609,14 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
                     free_reg_arm(reg);
                 }
 
-                // store spillover onto stack
+                if (!strncmp(t3, "ADD", MAX) || !strncmp(t3, "SUB", MAX) || !strncmp(t3, "MUL", MAX) ||
+                    !strncmp(t3, "DIV", MAX) || !strncmp(t3, "REM", MAX) || !strncmp(t3, "POW", MAX))
+                    fputs("    mov x1, #0\n", out);
 
-                if (!reg)
-                    fprintf(out, "    str x16, [x29, #-%zu]\n", stack_offset);
-                fputc('\n', out);
+                else if (t3[0] == '\"')
+                    fputs("    mov x1, #1\n", out);
+
+                fprintf(out, "    stp x16, x1, [x29, #-%zu]\n\n", stack_offset);
             }
         }
     }
@@ -554,7 +654,7 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
         fputs(".align 3\n", out);
 
         for (size_t i = 0; i < varc; i++) 
-            fprintf(out, "_%s: .quad 0\n", variables[i]);
+            fprintf(out, "_%s: .quad 0, 0\n", variables[i]);
 
         fputc('\n', out);
     }

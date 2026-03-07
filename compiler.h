@@ -29,7 +29,7 @@ typedef struct {
     SymbolType sym_type;
     DataType dat_type;
     size_t depth;
-    int arity;
+    size_t arity;
 
 } Symbol;
 
@@ -51,6 +51,7 @@ char* unsafe_compile_let(FILE* ir, ASTNode*);
 char* unsafe_compile_defun(FILE* ir, ASTNode*);
 char* unsafe_compile_string(ASTNode*);
 char* unsafe_compile_symbol(ASTNode*);
+char* unsafe_compile_call(FILE* ir, ASTNode* node);
 
 
 

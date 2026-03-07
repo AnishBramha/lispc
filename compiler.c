@@ -45,7 +45,7 @@ static inline void exit_scope(size_t sibling_offset) {
 
 static inline size_t push_local_var(const char* name, DataType type) {
 
-    stack_offset += 8;
+    stack_offset += 16;
 
     Symbol var = {
 
@@ -139,19 +139,21 @@ char* unsafe_compile_list(FILE* ir, ASTNode* node) {
 
     switch (node->children[0]->current->token) {
 
-        case PLUS:    return unsafe_compile_arithmetic(ir, node, "ADD");
-        case MINUS:   return unsafe_compile_arithmetic(ir, node, "SUB");
-        case STAR:    return unsafe_compile_arithmetic(ir, node, "MUL");
-        case SLASH:   return unsafe_compile_arithmetic(ir, node, "DIV");
-        case PERCENT: return unsafe_compile_arithmetic(ir, node, "REM");
-        case CARET:   return unsafe_compile_arithmetic(ir, node, "POW");
+        case PLUS:       return unsafe_compile_arithmetic(ir, node, "ADD");
+        case MINUS:      return unsafe_compile_arithmetic(ir, node, "SUB");
+        case STAR:       return unsafe_compile_arithmetic(ir, node, "MUL");
+        case SLASH:      return unsafe_compile_arithmetic(ir, node, "DIV");
+        case PERCENT:    return unsafe_compile_arithmetic(ir, node, "REM");
+        case CARET:      return unsafe_compile_arithmetic(ir, node, "POW");
 
-        case PRINT:   return unsafe_compile_print(ir, node);
-        case NEWLINE: return unsafe_compile_newline(ir);
+        case PRINT:      return unsafe_compile_print(ir, node);
+        case NEWLINE:    return unsafe_compile_newline(ir);
 
-        case DEFVAR:  return unsafe_compile_defvar(ir, node);
-        case DEFUN:   return unsafe_compile_defun(ir, node);
-        case LET:     return unsafe_compile_let(ir, node);
+        case DEFVAR:     return unsafe_compile_defvar(ir, node);
+        case DEFUN:      return unsafe_compile_defun(ir, node);
+        case LET:        return unsafe_compile_let(ir, node);
+
+        case IDENTIFIER: return unsafe_compile_call(ir, node);
 
         default:      return NULL;
     }
@@ -381,7 +383,7 @@ char* unsafe_compile_let(FILE* ir, ASTNode* node) {
 
         } else { // (let (identifier) ...)
 
-            if (node->children[1]->current->token != IDENTIFIER) {
+            if (node->children[1]->children[i]->current->token != IDENTIFIER) {
 
                 fprintf(stderr, "COMPILATION ERROR: Illegal l-value in `let` binding on line %zu\n", node->children[1]->current->line);
                 freeAST(true, node);
@@ -457,7 +459,7 @@ char* unsafe_compile_defun(FILE* ir, ASTNode* node) {
                 exit(EX_DATAERR);
             }
 
-            fprintf(ir, "ARG @%zu %zu\n", push_local_var(node->children[2]->children[i]->current->lexeme, DAT_INT), i);
+            fprintf(ir, "PARAM @%zu %zu\n", push_local_var(node->children[2]->children[i]->current->lexeme, DAT_INT), i);
         }
     }
 
@@ -471,7 +473,7 @@ char* unsafe_compile_defun(FILE* ir, ASTNode* node) {
 
         reg = unsafe_compile_node(ir, node->children[i]);
     }
-
+    reg = reg ? reg : strdup("0");
 
     // epilogue
 
@@ -562,7 +564,50 @@ char* unsafe_compile_symbol(ASTNode* node) {
 }
 
 
+char* unsafe_compile_call(FILE* ir, ASTNode* node) {
 
+    u32 idx = table_get(func_namespace, node->children[0]->current->lexeme);
+    if (idx == -1) {
+
+        fprintf(stderr, "COMPILATION ERROR: Undefined reference to function `%s` on line %zu\n", node->children[0]->current->lexeme, node->children[0]->current->line);
+        freeAST(true, node);
+        exit(EX_DATAERR);
+    }
+
+
+    // arity check
+
+    if (arr_len(node->children) - 1 != func_namespace[idx].arity) {
+
+        fprintf(stderr, "COMPILATION ERROR: Function `%s` expects %zu arguments, but got %zu arguments on line %zu\n", node->children[0]->current->lexeme, func_namespace[idx].arity, arr_len(node->children) - 1, node->children[0]->current->line);
+        freeAST(true, node);
+        exit(EX_DATAERR);
+    }
+
+    if (func_namespace[idx].arity > MAX) {
+
+        fprintf(stderr, "COMPILATION ERROR: Function `%s` can accept at most %d arguments, but was defined with %zu arguments on line %zu\n", node->children[0]->current->lexeme, MAX + 8, func_namespace[idx].arity, node->children[0]->current->line);
+        freeAST(true, node);
+        exit(EX_DATAERR);
+    }
+
+    char* args[MAX]; // 1KB argument stack - 1024 arguments
+    for (size_t i = 0; i < func_namespace[idx].arity; i++)
+        args[i] = unsafe_compile_node(ir, node->children[i + 1]);
+
+    // reverse stack push arguments
+    for (int i = func_namespace[idx].arity - 1; i >= 0; i--) {
+
+        fprintf(ir, "ARG %d %s\n", i, args[i]);
+        free(args[i]);
+    }
+
+    // return value
+    char* ret = unsafe_temp_reg();
+    fprintf(ir, "%s = CALL _%s %zu\n", ret, node->children[0]->current->lexeme, func_namespace[idx].arity);
+
+    return ret;
+}
 
 
 

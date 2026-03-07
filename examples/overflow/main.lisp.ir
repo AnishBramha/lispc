@@ -1,0 +1,7 @@
+FUNC _foo
+%t0 = CALL _foo 0
+RET %t0
+END _foo
+
+%t0 = CALL _foo 0
+

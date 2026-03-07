@@ -1,0 +1,35 @@
+@16 = 0
+@32 = "Hello!"
+PRINT "x -> "
+PRINT @16
+PRINT "\n"
+PRINT "y -> "
+PRINT @32
+NEWLINE
+
+FUNC _foo
+PARAM @16 0
+PARAM @32 1
+PARAM @48 2
+@64 = @48
+%t0 = ADD @16 @32
+%t1 = ADD @64 %t0
+PRINT %t1
+NEWLINE
+RET 0
+END _foo
+
+FUNC _bar
+PRINT "\n"
+NEWLINE
+%t0 = ADD 1 2
+RET %t0
+END _bar
+
+ARG 2 3
+ARG 1 2
+ARG 0 1
+%t0 = CALL _foo 3
+
+%t0 = CALL _bar 0
+

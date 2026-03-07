@@ -1,6 +1,45 @@
 FUNC _greet
 PRINT "Hello, World!\n"
-RET (null)
+RET 0
 END _greet
 
+%t0 = CALL _greet 0
+
+%t0 = CALL _greet 0
+
+FUNC _message
+RET "Messsage!\n"
+END _message
+
+%t0 = CALL _message 0
+PRINT %t0
+PRINT "\n"
+
+FUNC _add
+PARAM @16 0
+PARAM @32 1
+%t0 = ADD @16 @32
+RET %t0
+END _add
+
+ARG 1 2
+ARG 0 1
+%t0 = CALL _add 2
+PRINT %t0
+PRINT "\n"
+
+FUNC _show
+PARAM @16 0
+PRINT @16
+PRINT "\n"
+RET 0
+END _show
+
+ARG 0 "Foo Bar Bazz!"
+%t0 = CALL _show 1
+
+str = "Foo!"
+
+ARG 0 str
+%t0 = CALL _show 1
 
