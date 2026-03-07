@@ -27,7 +27,8 @@ PRINT %t4
 
 NEWLINE
 
-@8 = "Ascii"
+@8 = "Hello"
 PRINT @8
-PRINT "\n"
+PRINT ", World!\n"
+NEWLINE
 

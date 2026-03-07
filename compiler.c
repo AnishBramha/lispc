@@ -36,14 +36,14 @@ static inline void exit_scope(size_t sibling_offset) {
         if (var_namespace[i].depth <= scope_depth)
             break;
 
-        var_namespace[i].type = DEAD;
+        var_namespace[i].sym_type = DEAD;
     }
 
     stack_offset = sibling_offset;
 }
 
 
-static inline size_t push_local_var(const char* name) {
+static inline size_t push_local_var(const char* name, DataType type) {
 
     stack_offset += 8;
 
@@ -51,7 +51,8 @@ static inline size_t push_local_var(const char* name) {
 
         .name = strdup(name),
         .offset = stack_offset,
-        .type = LOCAL_VAR,
+        .sym_type = LOCAL_VAR,
+        .dat_type = type,
         .depth = scope_depth,
         .arity = 0,
     };
@@ -323,9 +324,10 @@ char* unsafe_compile_defvar(FILE* ir, ASTNode* node) {
 
                 .name = strdup(node->children[1]->current->lexeme),
                 .offset = 0,
-                .type = GLOBAL_VAR,
+                .sym_type = GLOBAL_VAR,
+                .dat_type = (val[0] == '\"') ? DAT_STRING : DAT_INT,
                 .depth = 0,
-                .arity = 0
+                .arity = 0,
             };
 
             arr_push(var_namespace, var);
@@ -390,7 +392,7 @@ char* unsafe_compile_let(FILE* ir, ASTNode* node) {
             val = strdup("0");
         }
 
-        size_t offset = push_local_var(name);
+        size_t offset = push_local_var(name, (val[0] == '\"') ? DAT_STRING : DAT_INT);
         fprintf(ir, "@%zu = %s\n", offset, val);
         free(val);
     }
@@ -414,8 +416,70 @@ char* unsafe_compile_let(FILE* ir, ASTNode* node) {
 
 char* unsafe_compile_defun(FILE* ir, ASTNode* node) {
 
-    (void)ir;
-    (void)node;
+    // (defun name (args) body)
+    if (arr_len(node->children) < 4) {
+
+        fprintf(stderr, "COMPILATION ERROR: Illegal function definition on line %zu\n", node->children[0]->current->line);
+        freeAST(true, node);
+        exit(EX_DATAERR);
+    }
+
+    if (node->children[1]->children || node->children[1]->current->token != IDENTIFIER) {
+
+        fprintf(stderr, "COMPILATION ERROR: Illegal function name on line %zu\n", node->children[1]->current->line);
+        freeAST(true, node);
+        exit(EX_DATAERR);
+    }
+
+    // name
+
+    u32 idx;
+    table_put(func_namespace, node->children[1]->current->lexeme, 0, idx);
+    func_namespace[idx].sym_type = FUNC;
+    func_namespace[idx].arity = node->children[2]->children ? arr_len(node->children[2]->children) : 0;
+
+    fprintf(ir, "FUNC _%s\n", node->children[1]->current->lexeme);
+
+    enter_scope();
+    size_t frame = stack_offset;
+    stack_offset = 0;
+
+    // args
+
+    if (node->children[2]->children) {
+
+        for (size_t i = 0; i < arr_len(node->children[2]->children); i++) {
+
+            if (node->children[2]->children[i]->children || node->children[2]->children[i]->current->token != IDENTIFIER) {
+
+                fprintf(stderr, "COMPILATION ERROR: Illegal argument to funcion `%s` on line %zu\n", node->children[1]->current->lexeme, node->children[2]->children[i]->current->line);
+                freeAST(true, node);
+                exit(EX_DATAERR);
+            }
+
+            fprintf(ir, "ARG @%zu %zu\n", push_local_var(node->children[2]->children[i]->current->lexeme, DAT_INT), i);
+        }
+    }
+
+    // body
+
+    char* reg = NULL;
+    for (size_t i = 3; i < arr_len(node->children); i++) {
+
+        if (reg)
+            free(reg);
+
+        reg = unsafe_compile_node(ir, node->children[i]);
+    }
+
+
+    // epilogue
+
+    fprintf(ir, "RET %s\n", reg);
+    fprintf(ir, "END _%s\n", node->children[1]->current->lexeme);
+
+    free(reg);
+    exit_scope(frame);
 
     return NULL;
 }
@@ -478,11 +542,11 @@ char* unsafe_compile_symbol(ASTNode* node) {
 
     for (int i = arr_len(var_namespace) - 1; i >= 0; i--) {
 
-        if (var_namespace[i].type != DEAD && !strncmp(var_namespace[i].name, node->current->lexeme, MAX)) {
+        if (var_namespace[i].sym_type != DEAD && !strncmp(var_namespace[i].name, node->current->lexeme, MAX)) {
 
             char* retrieve_sym = (char*)malloc(MAX);
 
-            if (var_namespace[i].type == LOCAL_VAR)
+            if (var_namespace[i].sym_type == LOCAL_VAR)
                 snprintf(retrieve_sym, MAX, "@%zu", var_namespace[i].offset);
 
             else // GLOBAL_VAR

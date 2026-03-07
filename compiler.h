@@ -9,17 +9,25 @@ typedef enum {
     GLOBAL_VAR,
     LOCAL_VAR,
     FUNC,
-    UNRESOLVED_FUNC,
     DEAD,
 
 } SymbolType;
+
+
+typedef enum {
+
+    DAT_INT,
+    DAT_STRING,
+
+} DataType;
 
 
 typedef struct {
 
     char* name;
     size_t offset; // may be value as well
-    SymbolType type;
+    SymbolType sym_type;
+    DataType dat_type;
     size_t depth;
     int arity;
 

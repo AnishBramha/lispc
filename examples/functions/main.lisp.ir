@@ -1,0 +1,6 @@
+FUNC _greet
+PRINT "Hello, World!\n"
+RET (null)
+END _greet
+
+

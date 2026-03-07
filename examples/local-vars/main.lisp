@@ -14,5 +14,6 @@
 
 (let () (newline))
 
+(let ((x "Hello")) (print x ", World!\n")(newline))
 
 
