@@ -1,0 +1,20 @@
+x = 1
+
+FUNC _x
+PARAM @16 0
+%t0 = ADD @16 1
+RET %t0
+END _x
+
+PRINT x
+PRINT " "
+PRINT x
+
+NEWLINE
+
+ARG 0 x
+%t0 = CALL _x 1
+PRINT %t0
+
+NEWLINE
+

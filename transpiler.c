@@ -7,7 +7,7 @@
 
 static bool free_bitmap[8] = {true, true, true, true, true, true, true, true};
 
-static size_t stack_offset = 256;
+static size_t stack_offset = 512;
 static size_t print_idx = 0;
 
 
@@ -56,11 +56,21 @@ static inline size_t fetch_operand(FILE* s, const char* op, int phys_reg[], char
         sscanf(op, "%%t%zu", &idx);
 
         int loc = phys_reg[idx];
+        size_t offset = -loc;
         
         size_t reg = map_reg_arm();
         reg = reg ? reg : 16;
+
+        if (offset <= 504)
+            fprintf(s, "    ldp x%zu, x1, [x29, #%d]\n", reg, loc);
+
+        else {
+
+            fprintf(s, "    mov x17, #%zu\n", offset);
+            fputs("    sub x17, x29, x17\n", s);
+            fprintf(s, "    ldp x%zu, x1, [x17]\n", reg);
+        }
         
-        fprintf(s, "    ldp x%zu, x1, [x29, #%d]\n", reg, loc);
         snprintf(out_reg, 16, "x%zu", reg);
         return reg;
     }
@@ -74,7 +84,16 @@ static inline size_t fetch_operand(FILE* s, const char* op, int phys_reg[], char
         size_t reg = map_reg_arm();
         reg = reg ? reg : 16;
 
-        fprintf(s, "    ldp x%zu, x1, [x29, #-%zu]\n", reg, offset);
+        if (offset <= 504)
+            fprintf(s, "    ldp x%zu, x1, [x29, #-%zu]\n", reg, offset);
+
+        else {
+
+            fprintf(s, "    mov x17, #%zu\n", offset);
+            fputs("    sub x17, x29, x17\n", s);
+            fprintf(s, "    ldp x%zu, x1, [x17]\n", reg);
+        }
+
         snprintf(out_reg, 16, "x%zu", reg);
         return reg;
     }
@@ -169,7 +188,7 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
     fputs("    stp x29, x30, [sp, #-16]!\n", out);
     fputs("    mov x29, sp\n", out);
     fputs("    ; STACK SPILL BUFFER\n", out);
-    fputs("    sub sp, sp, #512\n\n", out);
+    fputs("    sub sp, sp, #1024\n\n", out);
 
 
     // function buffer
@@ -234,7 +253,7 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
 
             // PROLOGUE
 
-            fprintf(out, "%s:\n", t2);
+            fprintf(out, "F%s:\n", t2);
             fputs("; === PROLOGUE ===\n", out);
             fputs("    stp x29, x30, [sp, #-16]!\n", out);
             fputs("    mov x29, sp\n", out);
@@ -242,7 +261,7 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
 
             frame = stack_offset;
             memcpy(frame_reg, free_bitmap, sizeof(free_bitmap));
-            stack_offset = 256;
+            stack_offset = 512;
 
             for (size_t i = 0; i < 8; i++)
                 free_bitmap[i] = true;
@@ -308,7 +327,7 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
             }
 
             fprintf(out, "    cmp x1, #1\n");
-            fprintf(out, "    beq .L_print%zu\n", ++print_idx);
+            fprintf(out, "    beq L_print%zu\n", ++print_idx);
 
             fputs("    mov x1, x0\n", out);
             fputs("    adrp x0, l_msg_int@PAGE\n", out);
@@ -316,12 +335,12 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
             fputs("    str x1, [sp, #-16]!\n", out);
             fputs("    bl _printf\n", out);
             fputs("    add sp, sp, #16\n", out);
-            fprintf(out, "    b .L_print_end%zu\n", print_idx);
+            fprintf(out, "    b L_print_end%zu\n", print_idx);
 
-            fprintf(out, ".L_print%zu:\n", print_idx);
+            fprintf(out, "L_print%zu:\n", print_idx);
             fputs("    bl _printf\n", out);
 
-            fprintf(out, ".L_print_end%zu:\n\n", print_idx);
+            fprintf(out, "L_print_end%zu:\n\n", print_idx);
 
 
         } else if (n == 3 && !strncmp(t1, "PARAM", MAX)) {
@@ -404,7 +423,7 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
             fputs("    stp x14, x15, [sp, #48]\n", out);
 
             // call and jump
-            fprintf(out, "    bl %s\n", t4);
+            fprintf(out, "    bl F%s\n", t4);
 
             // retrieve clobbered registers from stack
             fputs("    ldp x8, x9, [sp, #0]\n", out);
@@ -414,7 +433,7 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
             fputs("    add sp, sp, #64\n\n", out);
 
             // free spillover stack space
-            if (args > 8)
+            if (args > 4)
                 fprintf(out, "    add sp, sp, #%zu\n", (args - 8) * 16);
 
             // return value
@@ -423,9 +442,18 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
 
             stack_offset += 16;
             phys_reg[res] = -stack_offset;
-            fprintf(out, "    stp x0, x1, [x29, #-%zu]\n\n", stack_offset);
 
-        } else if (n >= 3 && !strncmp(t2, "=", MAX)) {
+                if (stack_offset <= 504)
+                    fprintf(out, "    stp x0, x1, [x29, #-%zu]\n\n", stack_offset);
+
+                else {
+
+                    fprintf(out, "    mov x17, #%zu\n", stack_offset);
+                    fputs("    sub x17, x29, x17\n", out);
+                    fprintf(out, "    stp x0, x1, [x17]\n\n");
+                }
+
+        } else if (n >= 3 && !strncmp(t2, "=", MAX)) { // assignment
 
             int is_rhs_string = is_string(t3, variables, var_types, varc, reg_types, local_types);
 
@@ -458,7 +486,17 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
                 } else
                     reg = fetch_operand(out, t3, phys_reg, load_reg);
 
-                fprintf(out, "    stp %s, x1, [x29, #-%zu]\n\n", load_reg, offset);
+
+                if (offset <= 504)
+                    fprintf(out, "    stp %s, x1, [x29, #-%zu]\n\n", load_reg, offset);
+
+                else {
+
+                    fprintf(out, "    mov x17, #%zu\n", offset);
+                    fputs("    sub x17, x29, x17\n", out);
+                    fprintf(out, "    stp %s, x1, [x17]\n\n", load_reg);
+                }
+
                 free_reg_arm(reg);
 
             } else if (t1[0] != '%') { // global variable assignment
@@ -616,7 +654,15 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
                 else if (t3[0] == '\"')
                     fputs("    mov x1, #1\n", out);
 
-                fprintf(out, "    stp x16, x1, [x29, #-%zu]\n\n", stack_offset);
+                if (stack_offset <= 504)
+                    fprintf(out, "    stp x16, x1, [x29, #-%zu]\n\n", stack_offset);
+
+                else {
+
+                    fprintf(out, "    mov x17, #%zu\n", stack_offset);
+                    fputs("    sub x17, x29, x17\n", out);
+                    fprintf(out, "    stp x16, x1, [x17]\n\n");
+                }
             }
         }
     }
