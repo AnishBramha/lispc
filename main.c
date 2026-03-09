@@ -11,144 +11,147 @@
 
 int main(int argc, char** argv) {
 
-    FILE* src = NULL;
-    FILE* ir = NULL;
-    FILE* s = NULL;
+    char src_path[MAX] = {NIL};
 
-    char arg[MAX];
-    char* src_path;
-    char ir_path[MAX];
-    char asm_path[MAX];
+    bool nasm = false;
+    bool clean = false;
+    bool run = false;
+    bool compile = false;
 
-    switch (argc) {
-        
-        case 0:
+    if (argc == 1) {
 
-            // TODO: print help for now
-            // TODO: make REPL later
+        // TODO: make REPL later
 
-            break;
+        puts("Usage: lispc.out <path-to-script.lisp> [-nasm|-clean|-run|-compile]");
+        puts("Note: Default target is ARM64");
+        puts("Note: REPL is under construction");
+    }
 
-        case 2:
+    for (size_t i = 1; i < argc; i++) {
 
-            strncpy(arg, argv[1], MAX);
-            src_path = strrchr(arg, '.');
+        if (argv[i][0] == '-') {
 
-            if (!src_path) {
+            if (!strncmp(argv[i], "-nasm", MAX))
+                nasm = true;
 
-                perror("Unrecognised file type (need .lisp)");
-                exit(EX_OSFILE);
-            }
+            else if (!strncmp(argv[i], "-clean", MAX))
+                clean = true;
 
-            if (!strncmp(src_path, ".lisp", MAX))
-                *src_path = NIL;
+            else if (!strncmp(argv[i], "-run", MAX))
+                run = true;
 
-            snprintf(ir_path, MAX, "%s.lisp.ir", arg);
-            snprintf(asm_path, MAX, "%s.s", arg);
-
-            src = fopen(argv[1], "r");
-            assert(src);
-            ir = fopen(ir_path, "w+");
-            assert(ir);
-            s = fopen(asm_path, "w");
-            assert(s);
-
-            compile(src, ir);
-
-            rewind(ir);
-            transpile_darwin_ARM64(ir, s);
-
-            fclose(src);
-            fclose(ir);
-            fclose(s);
-            src = NULL;
-            ir = NULL;
-            s = NULL;
-
-            if (!fork()) {
-
-                char exec_path[MAX];
-                snprintf(exec_path, MAX, "%s.out", arg);
-                execlp("clang", "clang", asm_path, "-save-temps", "-o", exec_path, NULL);
-            }
-
-            else
-                wait(NULL);
-
-            break;
-
-
-        case 3:
-
-            #if 0
-
-            if (strncmp(argv[2], "-nasm", MAX)) {
-
-                perror("Illegal flag: Use -nasm for NASM x86_64");
-            }
-
-            strncpy(arg, argv[1], MAX);
-            src_path = strrchr(arg, '.');
-
-            if (!src_path) {
-
-                perror("Unrecognised file type (need .lisp)");
-                exit(EX_OSFILE);
-            }
-
-            if (!strncmp(src_path, ".lisp", MAX))
-                *src_path = NIL;
-
-            snprintf(ir_path, MAX, "%s.lisp.ir", arg);
-            snprintf(asm_path, MAX, "%s.asm", arg);
-
-            src = fopen(argv[1], "r");
-            assert(src);
-            ir = fopen(ir_path, "w+");
-            assert(ir);
-            s = fopen(asm_path, "w");
-            assert(s);
-
-            compile(src, ir);
-
-            rewind(ir);
-            transpile_nasm_x86_64(ir, s);
-
-            fclose(src);
-            fclose(ir);
-            fclose(s);
-            src = NULL;
-            ir = NULL;
-            s = NULL;
-
-            if (!fork())
-                execlp("nasm", "nasm", "-f", "elf64", asm_path, NULL);
+            else if (!strncmp(argv[i], "-compile", MAX))
+                compile = true;
 
             else {
 
-                wait(NULL);
+                fprintf(stderr, "ILLEGAL FLAG `%s`\n", argv[i]);
+                exit(EXIT_FAILURE);
+            }
 
-                if (!fork()) {
+        } else {
 
-                    char obj_path[MAX];
-                    snprintf(obj_path, MAX, "%s.o", arg);
-                    char exec_path[MAX];
-                    snprintf(exec_path, MAX, "%s.out", arg);
-                    execlp("gcc", "gcc", obj_path, "-lm", "-no-pie", "-o", exec_path, NULL);
-                }
+            if (!strlen(src_path))
+                strncpy(src_path, argv[i], MAX);
+        }
+    }
 
-                wait(NULL);
-            } 
-            
-            #endif
+    if (!strlen(src_path)) {
 
-            break;
+        fputs("NO SOURCE FILES PROVIDED\n", stderr);
+        exit(EXIT_FAILURE);
+    }
 
+    char* dot = strrchr(src_path, '.');
+    if (dot)
+        *dot = NIL;
 
-        default:
+    char src[MAX];
+    src[0] = NIL;
+    strncat(src, src_path, MAX);
+    strncat(src, ".lisp", MAX);
 
-            perror("Usage: lispc <src>.lisp [-nasm]");
-            break;
+    char ir[MAX];
+    ir[0] = NIL;
+    strncat(ir, src_path, MAX);
+    strncat(ir, ".lisp.ir", MAX);
+
+    char s[MAX];
+    s[0] = NIL;
+    strncat(s, src_path, MAX);
+    strncat(s, ".s", MAX);
+
+    FILE* _src = fopen(src, "r");
+    assert(_src);
+
+    FILE* _ir = fopen(ir, "w+");
+    assert(_ir);
+
+    FILE* _s = fopen(s, "w");
+    assert(_s);
+
+    compilef(_src, _ir);
+    rewind(_ir);
+
+    if (nasm);
+        // TODO: transpile_nasm_x86_64
+
+    else
+        transpile_darwin_ARM64(_ir, _s);
+
+    fclose(_src); _src = NULL;
+    fclose(_ir); _ir = NULL;
+    fclose(_s); _s = NULL;
+
+    if (!compile) {
+
+        char exec[MAX];
+        exec[0] = NIL;
+        strncat(exec, src_path, MAX);
+        strncat(exec, ".out", MAX);
+
+        char obj[MAX];
+        obj[0] = NIL;
+        strncat(obj, src_path, MAX);
+        strncat(obj, ".o", MAX);
+
+        if (!fork()) {
+
+            if (nasm) {
+
+                #ifdef __linux__
+
+                execlp("nasm", "nasm", "-f", "elf64", "-o", obj, s, NULL);
+                exit(EXIT_FAILURE);
+
+                #endif
+            }
+
+            if (!fork()) {
+
+                execlp("cc", "cc", "-save-temps", "-o", exec, s, NULL);
+                exit(EXIT_FAILURE);
+            }
+            wait(NULL);
+
+            exit(EXIT_SUCCESS);
+        }
+        wait(NULL);
+
+        if (clean) {
+
+            unlink(ir);
+            unlink(s);
+            unlink(obj);
+        }
+
+        if (run) {
+
+            char cmd[MAX];
+            snprintf(cmd, MAX, "./%s", exec);
+            execlp(cmd, cmd, NULL);
+            exit(EXIT_FAILURE);
+        }
     }
 
     return 0;

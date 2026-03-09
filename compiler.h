@@ -18,6 +18,7 @@ typedef enum {
 
     DAT_INT,
     DAT_STRING,
+    DAT_BOOL,
 
 } DataType;
 
@@ -38,7 +39,7 @@ extern Symbol* var_namespace;
 extern Symbol* func_namespace;
 
 
-void compile(FILE* src, FILE* ir);
+void compilef(FILE* src, FILE* ir);
 char* unsafe_compile_node(FILE* ir, ASTNode*);
 char* unsafe_compile_list(FILE* ir, ASTNode*);
 char* unsafe_compile_atom(ASTNode*);
@@ -51,7 +52,12 @@ char* unsafe_compile_let(FILE* ir, ASTNode*);
 char* unsafe_compile_defun(FILE* ir, ASTNode*);
 char* unsafe_compile_string(ASTNode*);
 char* unsafe_compile_symbol(ASTNode*);
-char* unsafe_compile_call(FILE* ir, ASTNode* node);
+char* unsafe_compile_call(FILE* ir, ASTNode*);
+// char* unsafe_compile_logical(FILE* ir, ASTNode*);
+char* unsafe_fold_comparison(FILE* ir, ASTNode*, const char* op);
+
+
+
 
 
 

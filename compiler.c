@@ -63,7 +63,7 @@ static inline size_t push_local_var(const char* name, DataType type) {
 
 
 
-void compile(FILE* src, FILE* ir) {
+void compilef(FILE* src, FILE* ir) {
 
     size_t line = 1;
 
@@ -139,23 +139,34 @@ char* unsafe_compile_list(FILE* ir, ASTNode* node) {
 
     switch (node->children[0]->current->token) {
 
-        case PLUS:       return unsafe_compile_arithmetic(ir, node, "ADD");
-        case MINUS:      return unsafe_compile_arithmetic(ir, node, "SUB");
-        case STAR:       return unsafe_compile_arithmetic(ir, node, "MUL");
-        case SLASH:      return unsafe_compile_arithmetic(ir, node, "DIV");
-        case PERCENT:    return unsafe_compile_arithmetic(ir, node, "REM");
-        case CARET:      return unsafe_compile_arithmetic(ir, node, "POW");
+        case PLUS:    return unsafe_compile_arithmetic(ir, node, "ADD");
+        case MINUS:   return unsafe_compile_arithmetic(ir, node, "SUB");
+        case STAR:    return unsafe_compile_arithmetic(ir, node, "MUL");
+        case SLASH:   return unsafe_compile_arithmetic(ir, node, "DIV");
+        case PERCENT: return unsafe_compile_arithmetic(ir, node, "REM");
+        case CARET:   return unsafe_compile_arithmetic(ir, node, "POW");
 
-        case PRINT:      return unsafe_compile_print(ir, node);
-        case NEWLINE:    return unsafe_compile_newline(ir);
+        case LESS:          return unsafe_compile_arithmetic(ir, node, "LESS");
+        case LESS_EQUAL:    return unsafe_compile_arithmetic(ir, node, "LESS_EQUAL");
+        case GREATER:       return unsafe_compile_arithmetic(ir, node, "GREATER");
+        case GREATER_EQUAL: return unsafe_compile_arithmetic(ir, node, "GREATER_EQUAL");
+        case EQL:           return unsafe_compile_arithmetic(ir, node, "EQL");
+        case NOT_EQUAL:     return unsafe_compile_arithmetic(ir, node, "NOT_EQUAL");
 
-        case DEFVAR:     return unsafe_compile_defvar(ir, node);
-        case DEFUN:      return unsafe_compile_defun(ir, node);
-        case LET:        return unsafe_compile_let(ir, node);
+        case AND: return unsafe_compile_arithmetic(ir, node, "AND");
+        case OR:  return unsafe_compile_arithmetic(ir, node, "OR");
+        case NOT: return unsafe_compile_arithmetic(ir, node, "NOT");
+
+        case PRINT:   return unsafe_compile_print(ir, node);
+        case NEWLINE: return unsafe_compile_newline(ir);
+
+        case DEFVAR: return unsafe_compile_defvar(ir, node);
+        case DEFUN:  return unsafe_compile_defun(ir, node);
+        case LET:    return unsafe_compile_let(ir, node);
 
         case IDENTIFIER: return unsafe_compile_call(ir, node);
 
-        default:      return NULL;
+        default: return NULL;
     }
 }
 
@@ -179,9 +190,19 @@ char* unsafe_compile_atom(ASTNode* node) {
 
 char* unsafe_compile_arithmetic(FILE* ir, ASTNode* node, const char* op) {
 
+    if (!strncmp(op, "LESS", MAX) || !strncmp(op, "LESS_EQUAL", MAX) || !strncmp(op, "GREATER", MAX) ||
+        !strncmp(op, "GREATER_EQUAL", MAX) || !strncmp(op, "EQL", MAX) || !strncmp(op, "NOT_EQUAL", MAX))
+        return unsafe_fold_comparison(ir, node, op);
+
     switch(arr_len(node->children)) {
 
         case 1: // (op)
+
+            if (!strncmp(op, "AND", MAX))
+                return strdup("#t");
+
+            if (!strncmp(op, "OR", MAX))
+                return strdup("#f");
 
             if (!strncmp(op, "ADD", MAX) || !strncmp(op, "SUB", MAX) || !strncmp(op, "REM", MAX))
                 return strdup("0");
@@ -190,6 +211,15 @@ char* unsafe_compile_arithmetic(FILE* ir, ASTNode* node, const char* op) {
                 return strdup("1");
 
         case 2:
+
+            if (!strncmp(op, "NOT", MAX)) {
+
+                char* reg = unsafe_temp_reg();
+                char* clause = unsafe_compile_node(ir, node->children[1]);
+                fprintf(ir, "%s = NOT %s\n", reg, clause);
+
+                return reg;
+            }
 
             if (!strncmp(op, "SUB", MAX)) { // unary minus
 
@@ -436,6 +466,14 @@ char* unsafe_compile_defun(FILE* ir, ASTNode* node) {
     // name
 
     u32 idx;
+
+    if (table_get(func_namespace, node->children[1]->current->lexeme) != -1) {
+
+        fprintf(stderr, "COMPILATION ERROR: Shadowing global functions is not yet supported on line %zu\n", node->children[1]->current->line);
+        freeAST(true, node);
+        exit(EX_DATAERR);
+    }
+
     table_put(func_namespace, node->children[1]->current->lexeme, 0, idx);
     func_namespace[idx].sym_type = FUNC;
     func_namespace[idx].arity = node->children[2]->children ? arr_len(node->children[2]->children) : 0;
@@ -542,6 +580,11 @@ char* unsafe_compile_string(ASTNode* node) {
 
 char* unsafe_compile_symbol(ASTNode* node) {
 
+    // boolean
+    
+    if (!strncmp(node->current->lexeme, "#t", MAX) || !strncmp(node->current->lexeme, "#f", MAX))
+        return strdup(node->current->lexeme);
+
     for (int i = arr_len(var_namespace) - 1; i >= 0; i--) {
 
         if (var_namespace[i].sym_type != DEAD && !strncmp(var_namespace[i].name, node->current->lexeme, MAX)) {
@@ -609,6 +652,74 @@ char* unsafe_compile_call(FILE* ir, ASTNode* node) {
     return ret;
 }
 
+#if 0
+char* unsafe_compile_logical(FILE* ir, ASTNode* node) {
+
+    if (arr_len(node->children) < 3) {
+
+        fprintf(stderr, "COMPILATION ERROR: Expected at least two operands for `%s` operation on line %zu\n", node->children[0]->current->lexeme, node->children[0]->current->line);
+        freeAST(true, node);
+        exit(EX_DATAERR);
+    }
+
+
+}
+#endif
+
+char* unsafe_fold_comparison(FILE* ir, ASTNode* node, const char* op) {
+
+    if (!strncmp(op, "NOT", MAX)) {
+
+        if (arr_len(node->children) != 2) {
+
+            fprintf(stderr, "COMPILATION ERROR: Expected one operand for `NOT` operation on line %zu\n", node->children[0]->current->line);
+            freeAST(true, node);
+            exit(EX_DATAERR);
+        }
+
+        char* reg = unsafe_temp_reg();
+        char* clause = unsafe_compile_node(ir, node->children[1]);
+        fprintf(ir, "%s = NOT %s\n", reg, clause);
+
+        return reg;
+    }
+
+    if (arr_len(node->children) < 3) {
+
+        fprintf(stderr, "COMPILATION ERROR: Expected at least two operands for `%s` operation on line %zu\n", node->children[0]->current->lexeme, node->children[0]->current->line);
+        freeAST(true, node);
+        exit(EX_DATAERR);
+    }
+
+    char* acc = NULL;
+    char* clause1 = unsafe_compile_node(ir, node->children[1]);
+
+    for (size_t i = 2; i < arr_len(node->children); i++) {
+
+        char* clause2 = unsafe_compile_node(ir, node->children[i]);
+
+        char* boolean = unsafe_temp_reg();
+        fprintf(ir, "%s = %s %s %s\n", boolean, op, clause1, clause2);
+
+        if (!acc)
+            acc = strdup(boolean);
+
+        else {
+
+            char* inter = unsafe_temp_reg();
+            fprintf(ir, "%s = AND %s %s\n", inter, acc, boolean);
+            free(acc);
+            acc = inter;
+        }
+
+        free(clause1);
+        clause1 = clause2;
+        free(boolean);
+    }
+
+    free(clause1);
+    return acc;
+}
 
 
 

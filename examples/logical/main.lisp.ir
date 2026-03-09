@@ -1,0 +1,25 @@
+%t0 = EQL 5 5
+PRINT %t0
+PRINT "\n"
+
+%t1 = NOT_EQUAL 2 3
+%t2 = GREATER 2 5
+%t3 = OR %t2 2
+%t4 = OR %t3 #t
+%t5 = AND %t1 %t4
+%t6 = LESS_EQUAL 3 4
+%t7 = AND %t5 %t6
+%t0 = NOT %t7
+PRINT %t0
+PRINT "\n"
+
+%t0 = EQL #t #t
+PRINT %t0
+PRINT " "
+%t1 = EQL #t #f
+PRINT %t1
+PRINT " "
+%t2 = EQL #f #f
+PRINT %t2
+PRINT "\n"
+

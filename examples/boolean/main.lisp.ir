@@ -1,0 +1,11 @@
+PRINT "true -> "
+PRINT #t
+PRINT "\tfalse -> "
+PRINT #f
+PRINT "\n"
+
+bool = #t
+
+PRINT bool
+PRINT "\n"
+

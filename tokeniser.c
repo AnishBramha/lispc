@@ -36,11 +36,83 @@ TokenInfo* unsafe_get(FILE* src, size_t line) {
 
             case  '*': tokenInfo->lexeme[0] = c; tokenInfo->lexeme[1] = NIL; tokenInfo->token = STAR;        return tokenInfo;
 
-            case  '/': tokenInfo->lexeme[0] = c; tokenInfo->lexeme[1] = NIL; tokenInfo->token = SLASH;       return tokenInfo;
-
             case  '%': tokenInfo->lexeme[0] = c; tokenInfo->lexeme[1] = NIL; tokenInfo->token = PERCENT;     return tokenInfo;
 
             case  '^': tokenInfo->lexeme[0] = c; tokenInfo->lexeme[1] = NIL; tokenInfo->token = CARET;       return tokenInfo;
+
+            case  '/':
+
+               tokenInfo->lexeme[0] = c;
+
+               if ((c = fgetc(src)) == '=') {
+
+                   tokenInfo->lexeme[1] = c;
+                   tokenInfo->lexeme[2] = NIL;
+                   tokenInfo->token = NOT_EQUAL;
+
+               } else {
+
+                   ungetc(c, src);
+                   tokenInfo->lexeme[1] = NIL;
+                   tokenInfo->token = SLASH;
+               }
+
+               return tokenInfo;
+
+
+            case '<':
+                
+                tokenInfo->lexeme[0] = c;
+
+                if ((c = fgetc(src)) == '=') {
+
+                    tokenInfo->lexeme[1] = c;
+                    tokenInfo->lexeme[2] = NIL;
+                    tokenInfo->token = LESS_EQUAL;
+
+                } else {
+                    
+                    ungetc(c, src);
+                    tokenInfo->lexeme[1] = NIL;
+                    tokenInfo->token = LESS;
+                }
+
+                return tokenInfo;
+
+
+            case '>':
+
+                tokenInfo->lexeme[0] = c;
+
+                if ((c = fgetc(src)) == '=') {
+
+                    tokenInfo->lexeme[1] = c;
+                    tokenInfo->lexeme[2] = NIL;
+                    tokenInfo->token = GREATER_EQUAL;
+
+                } else {
+                    
+                    ungetc(c, src);
+                    tokenInfo->lexeme[1] = NIL;
+                    tokenInfo->token = GREATER;
+                }
+
+                return tokenInfo;
+
+
+            case '#':
+
+                tokenInfo->lexeme[0] = c;
+
+                if (!((c = fgetc(src)) == 't' || c == 'f'))
+                    goto panic;
+
+                tokenInfo->lexeme[1] = c;
+                tokenInfo->lexeme[2] = NIL;
+                tokenInfo->token = (c == 't') ? TRUE : FALSE;
+
+                return tokenInfo;
+
 
             // skip whitespace
             case  ' ':
@@ -68,9 +140,10 @@ TokenInfo* unsafe_get(FILE* src, size_t line) {
                 if (isalpha((unsigned char)c))
                     return unsafe_get_alpha(src, c, tokenInfo);
 
-                fprintf(stderr, "SYNTAX ERROR: Illegal token `%c` on line %zu\n", c, tokenInfo->line);
-                free(tokenInfo);
-                exit(EX_DATAERR);
+                panic:
+                    fprintf(stderr, "SYNTAX ERROR: Illegal token `%c` on line %zu\n", c, tokenInfo->line);
+                    free(tokenInfo);
+                    exit(EX_DATAERR);
         }
     }
 }
@@ -137,6 +210,18 @@ TokenInfo* unsafe_get_alpha(FILE* src, int c, TokenInfo* tokenInfo) {
 
     else if (!strncmp(tokenInfo->lexeme, "let", MAX))
         tokenInfo->token = LET;
+
+    else if (!strncmp(tokenInfo->lexeme, "eql", MAX))
+        tokenInfo->token = EQL;
+
+    else if (!strncmp(tokenInfo->lexeme, "and", MAX))
+        tokenInfo->token = AND;
+
+    else if (!strncmp(tokenInfo->lexeme, "or", MAX))
+        tokenInfo->token = OR;
+
+    else if (!strncmp(tokenInfo->lexeme, "not", MAX))
+        tokenInfo->token = NOT;
 
     else
         tokenInfo->token = IDENTIFIER;

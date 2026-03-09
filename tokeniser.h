@@ -12,6 +12,10 @@ typedef enum {
     // arithmetic
     PLUS, MINUS, STAR, SLASH, PERCENT, CARET,
 
+    // logical
+    LESS, GREATER, LESS_EQUAL, GREATER_EQUAL,
+    EQL, NOT, NOT_EQUAL, AND, OR,
+
     // comments
     SEMICOLON,
 
@@ -19,7 +23,7 @@ typedef enum {
     PRINT, NEWLINE,
 
     // miscellaneous
-    IDENTIFIER, INT, FLOAT, STRING, END_OF_FILE,
+    IDENTIFIER, INT, FLOAT, STRING, END_OF_FILE, TRUE, FALSE,
 
     // keywords
     DEFVAR, DEFUN, LET,

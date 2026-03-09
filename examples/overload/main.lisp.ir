@@ -1,0 +1,5 @@
+FUNC _foo
+PRINT "foo\n"
+RET 0
+END _foo
+
