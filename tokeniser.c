@@ -223,6 +223,9 @@ TokenInfo* unsafe_get_alpha(FILE* src, int c, TokenInfo* tokenInfo) {
     else if (!strncmp(tokenInfo->lexeme, "not", MAX))
         tokenInfo->token = NOT;
 
+    else if (!strncmp(tokenInfo->lexeme, "if", MAX))
+        tokenInfo->token = IF;
+
     else
         tokenInfo->token = IDENTIFIER;
 

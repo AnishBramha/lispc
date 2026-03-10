@@ -20,6 +20,8 @@ static size_t reg_idx = 0;
 static size_t scope_depth = 0;
 static size_t stack_offset = 0;
 
+static size_t else_idx = 0;
+
 
 static inline void enter_scope(void) {
 
@@ -156,6 +158,8 @@ char* unsafe_compile_list(FILE* ir, ASTNode* node) {
         case AND: return unsafe_compile_arithmetic(ir, node, "AND");
         case OR:  return unsafe_compile_arithmetic(ir, node, "OR");
         case NOT: return unsafe_compile_arithmetic(ir, node, "NOT");
+
+        case IF: return unsafe_compile_if(ir, node);
 
         case PRINT:   return unsafe_compile_print(ir, node);
         case NEWLINE: return unsafe_compile_newline(ir);
@@ -652,19 +656,6 @@ char* unsafe_compile_call(FILE* ir, ASTNode* node) {
     return ret;
 }
 
-#if 0
-char* unsafe_compile_logical(FILE* ir, ASTNode* node) {
-
-    if (arr_len(node->children) < 3) {
-
-        fprintf(stderr, "COMPILATION ERROR: Expected at least two operands for `%s` operation on line %zu\n", node->children[0]->current->lexeme, node->children[0]->current->line);
-        freeAST(true, node);
-        exit(EX_DATAERR);
-    }
-
-
-}
-#endif
 
 char* unsafe_fold_comparison(FILE* ir, ASTNode* node, const char* op) {
 
@@ -720,6 +711,55 @@ char* unsafe_fold_comparison(FILE* ir, ASTNode* node, const char* op) {
     free(clause1);
     return acc;
 }
+
+
+char* unsafe_compile_if(FILE* ir, ASTNode* node) {
+
+    if (arr_len(node->children) != 4) {
+
+        fprintf(stderr, "COMPILATION ERROR: Expected `then` and `else` clauses in `if` expression on line %zu\n", node->children[0]->current->line);
+        freeAST(true, node);
+        exit(EX_DATAERR);
+    }
+
+    size_t curr_else_idx = else_idx++;
+
+    char* res = unsafe_temp_reg();
+
+    char* cond = unsafe_compile_node(ir, node->children[1]);
+    fprintf(ir, "JMPF %s L_else_%zu\n", cond, curr_else_idx);
+    free(cond);
+
+    char* then_clause = unsafe_compile_node(ir, node->children[2]);
+
+    if (then_clause) {
+
+        fprintf(ir, "%s = %s\n", res, then_clause);
+        free(then_clause);
+
+    } else
+        fprintf(ir, "%s = 0\n", res);
+
+    fprintf(ir, "JMP L_endif%zu\n", curr_else_idx);
+
+    fprintf(ir, "LABEL L_else_%zu\n", curr_else_idx);
+
+    char* else_clause = unsafe_compile_node(ir, node->children[3]);
+
+    if (else_clause) {
+
+        fprintf(ir, "%s = %s\n", res, else_clause);
+        free(else_clause);
+
+    } else
+        fprintf(ir, "%s = 0\n", res);
+
+    fprintf(ir, "LABEL L_endif%zu\n", curr_else_idx);
+
+    return res;
+}
+
+
 
 
 

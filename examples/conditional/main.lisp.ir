@@ -1,0 +1,19 @@
+%t1 = GREATER_EQUAL 5 3
+JMPF %t1 L_else_0
+PRINT "Foo!\n"
+%t0 = 0
+JMP L_endif0
+LABEL L_else_0
+PRINT "Bar!\n"
+%t0 = 0
+LABEL L_endif0
+
+%t1 = EQL #t #t
+JMPF %t1 L_else_1
+%t0 = "Bazz!\n"
+JMP L_endif1
+LABEL L_else_1
+%t0 = "Buzz!\n"
+LABEL L_endif1
+PRINT %t0
+

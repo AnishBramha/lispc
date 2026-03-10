@@ -26,7 +26,7 @@ typedef enum {
     IDENTIFIER, INT, FLOAT, STRING, END_OF_FILE, TRUE, FALSE,
 
     // keywords
-    DEFVAR, DEFUN, LET,
+    DEFVAR, DEFUN, LET, IF,
 
 } Token;
 

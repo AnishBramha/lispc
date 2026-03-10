@@ -1,0 +1,44 @@
+FUNC _fib
+PARAM @16 0
+%t1 = LESS_EQUAL @16 1
+JMPF %t1 L_else_0
+%t0 = 1
+JMP L_endif0
+LABEL L_else_0
+%t2 = SUB @16 1
+ARG 0 %t2
+%t3 = CALL _fib 1
+%t4 = SUB @16 2
+ARG 0 %t4
+%t5 = CALL _fib 1
+%t6 = ADD %t3 %t5
+%t0 = %t6
+LABEL L_endif0
+RET %t0
+END _fib
+
+ARG 0 0
+%t0 = CALL _fib 1
+PRINT %t0
+PRINT ", "
+
+ARG 0 1
+%t0 = CALL _fib 1
+PRINT %t0
+PRINT ", "
+
+ARG 0 2
+%t0 = CALL _fib 1
+PRINT %t0
+PRINT ", "
+
+ARG 0 3
+%t0 = CALL _fib 1
+PRINT %t0
+PRINT ", "
+
+ARG 0 4
+%t0 = CALL _fib 1
+PRINT %t0
+PRINT "\n"
+
