@@ -994,147 +994,449 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
 
 
 
-#if 0
 
-static inline void map_reg_x86(FILE* s, const char* op, char* out_reg, const char* scratch_reg) {
-    if (op[0] == '%') {
-        int reg_idx;
-        sscanf(op, "%%t%d", &reg_idx);
-        snprintf(out_reg, 16, "r%d", (reg_idx % 6) + 10); 
-    } else {
-        long long val = atoll(op);
-        fprintf(s, "    mov %s, %lld\n", scratch_reg, val);
-        snprintf(out_reg, 16, "%s", scratch_reg);
+
+static inline size_t map_reg_x86_64(void) {
+
+    // Scratch registers: r8 to r15
+
+    for (int i = 1; i < 8; i++) {
+
+        if (free_bitmap[i]) {
+
+            free_bitmap[i] = false;
+            return i + 8; // r9 to r15
+        }
     }
+
+    if (free_bitmap[0]) {
+        free_bitmap[0] = false;
+        return 8; // r8
+    }
+
+    stack_offset += 8;
+    return 0; // Stack spill
 }
 
-// TODO: fix multiline strings and strings with quotes inside them
-void transpile_nasm_x86_64(FILE* ir, FILE* s) {
+
+static inline void free_reg_x86_64(int reg_num) {
+
+    if (8 <= reg_num && reg_num <= 15)
+        free_bitmap[reg_num - 8] = true;
+}
+
+
+static inline size_t fetch_operand_x86_64(FILE* s, const char* op, int phys_reg[], char* out_reg) {
+    
+    // tag register - rcx
+    
+    if (op[0] == '%') { 
+
+        size_t idx;
+        sscanf(op, "%%t%zu", &idx);
+        size_t offset = -phys_reg[idx];
+        
+        size_t reg = map_reg_x86_64();
+        reg = reg ? reg : 10;
+
+        fprintf(s, "    mov r%zu, QWORD PTR [rbp - %zu]\n", reg, offset);
+        fprintf(s, "    mov rax, QWORD PTR [rbp - %zu]\n", offset - 8);
+        
+        snprintf(out_reg, 16, "r%zu", reg);
+        return reg;
+    }
+
+    if (op[0] == '@') { 
+
+        size_t offset;
+        sscanf(op, "@%zu", &offset);
+
+        size_t reg = map_reg_x86_64();
+        reg = reg ? reg : 10;
+
+        fprintf(s, "    mov r%zu, QWORD PTR [rbp - %zu]\n", reg, offset);
+        fprintf(s, "    mov rax, QWORD PTR [rbp - %zu]\n", offset - 8);
+
+        snprintf(out_reg, 16, "r%zu", reg);
+        return reg;
+    }
+
+    size_t reg = map_reg_x86_64();
+    reg = reg ? reg : 10;
+
+    if (isalpha(op[0]) || op[0] == '_') { // Global Variable
+
+        fprintf(s, "    lea r%zu, [rip + _%s]\n", reg, op);
+        fprintf(s, "    mov rax, QWORD PTR [r%zu + 8]\n", reg);
+        fprintf(s, "    mov r%zu, QWORD PTR [r%zu]\n", reg, reg);
+
+    } else if (op[0] == '#') { // Boolean
+        
+        bool val = op[1] == 't';
+        fprintf(s, "    mov r%zu, %d\n", reg, val);
+        fputs("    mov rax, 2\n", s);
+
+    } else if (op[0] == '\"') { // String Literal
+        
+        char temp[MAX];
+        strncpy(temp, op, MAX);
+        temp[strlen(temp) - 1] = NIL;
+        strncpy(strings[stringc], temp + 1, MAX);
+        strings[stringc][MAX - 1] = NIL;
+        
+        fprintf(s, "    lea r%zu, [rip + msg%zu]\n", reg, stringc++);
+        fputs("    mov rax, 1\n", s);
+
+    } else { // Number
+
+        fprintf(s, "    mov r%zu, %lld\n", reg, atoll(op));
+        fputs("    mov rax, 0\n", s);
+    }
+
+    snprintf(out_reg, 16, "r%zu", reg);
+    return reg;
+}
+
+
+void transpile_gnu_x86_64(FILE* ir, FILE* s) {
 
     char line[MAX];
-    char variables[MAX][64];
-    int var_types[MAX] = {0};
-    int varc = 0;
-    int reg_types[1024] = {0};
-    char strings[MAX][256];
-    int stringc = 0;
+    char variables[MAX][MAX];
+    bool var_types[MAX] = {false};
+    size_t varc = 0;
+    bool reg_types[MAX] = {false};
+    bool local_types[MAX] = {false};
+    int phys_reg[MAX] = {0};
 
-    // Prologue (System V ABI)
-    fputs("; === PROLOGUE ===\n", s);
-    fputs("section .text\n", s);
-    fputs("global main\n", s);
-    fputs("extern printf\n", s);
-    fputs("extern puts\n", s);
-    fputs("extern pow\n", s);
-    fputs("main:\n", s);
-    fputs("    push rbp\n", s);
-    fputs("    mov rbp, rsp\n", s);
-    fputs("    sub rsp, 32\n\n", s);
+    FILE* out = s;
 
-    while (fgets(line, sizeof(line), ir)) {
+    // x86_64 Prologue using Intel Syntax
+    fputs("; === PROLOGUE ===\n", out);
+    fputs(".intel_syntax noprefix\n", out);
+    fputs(".globl main\n", out);
+    fputs(".align 4\n\n", out);
+    fputs("main:\n", out);
+    fputs("    push rbp\n", out);
+    fputs("    mov rbp, rsp\n", out);
+    fputs("    sub rsp, 1024\n\n", out);
+
+    FILE* buf = tmpfile();
+    size_t frame;
+    bool frame_reg[8];
+    int frame_phys_reg[MAX] = {0};
+
+    while (fgets(line, MAX, ir)) {
+
         if (line[0] == '\n' || line[0] == '\r') continue;
 
-        char* quote_start = strchr(line, '\"');
-        if (quote_start) {
-            char* quote_end = strrchr(line, '\"');
-            if (quote_end && quote_end > quote_start) {
-                for (char* p = quote_start; p < quote_end; p++) {
-                    if (*p == ' ') *p = '\x01';
-                }
+        bool in_quote = false;
+        for (char* p = line; *p; p++) {
+
+            if (*p == '\"')
+                in_quote = !in_quote;
+
+            else if (in_quote && *p == ' ')
+                *p = '\x01';
+        }
+
+        char t1[MAX];
+        char t2[MAX];
+        char t3[MAX];
+        char t4[MAX];
+        char t5[MAX];
+        int n = sscanf(line, "%s %s %s %s %s\n", t1, t2, t3, t4, t5);
+
+        for (int i = 0; i < strlen(line); i++)
+            line[i] = (line[i] == '\x01') ? ' ' : line[i];
+
+        if (n == 2 && !strncmp(t1, "FUNC", MAX)) {
+
+            out = buf;
+            fprintf(out, "; %s", line);
+
+        } else if (n == 2 && !strncmp(t1, "END", MAX)) {
+
+            fprintf(out, "; %s\n", line);
+            out = s;
+
+        } else
+            fprintf(out, "    ; %s", line);
+
+        if (n == 1 && !strncmp(t1, "PANIC", MAX))
+            fputs("    call abort\n", out);
+
+        else if (n == 1 && !strncmp(t1, "ABORT", MAX)) {
+
+            fprintf(out, "    mov rdi, %d\n", EX_PROTOCOL);
+            fputs("    call exit\n", out);
+
+        } else if (n == 1 && !strncmp(t1, "NEWLINE", MAX))
+
+            fputs("    mov rdi, 10\n    call putchar\n", out);
+
+        else if (n == 2 && !strncmp(t1, "FUNC", MAX)) {
+
+            fprintf(out, "F%s:\n", t2);
+            fputs("    push rbp\n", out);
+            fputs("    mov rbp, rsp\n", out);
+            fputs("    sub rsp, 1024\n", out);
+
+            frame = stack_offset;
+            memcpy(frame_reg, free_bitmap, sizeof(free_bitmap));
+            memcpy(frame_phys_reg, phys_reg, sizeof(phys_reg));
+            memset(phys_reg, 0, sizeof(phys_reg));
+            stack_offset = 512;
+
+            for (size_t i = 0; i < 8; i++)
+                free_bitmap[i] = true;
+
+        } else if (n == 2 && !strncmp(t1, "END", MAX)) {
+
+            stack_offset = frame;
+            memcpy(free_bitmap, frame_reg, sizeof(frame_reg));
+            memcpy(phys_reg, frame_phys_reg, sizeof(frame_phys_reg));
+
+        } else if (n == 2 && !strncmp(t1, "RET", MAX)) {
+
+            fputs("; === EPILOGUE ===\n", out);
+
+            char arm_reg[MAX];
+            int reg = fetch_operand_x86_64(out, t2, phys_reg, arm_reg);
+
+            fputs("    mov rdx, rax\n", out);
+            
+            if (strncmp(arm_reg, "rax", MAX))
+                fprintf(out, "    mov rax, %s\n", arm_reg);
+            
+            free_reg_x86_64(reg);
+            fputs("    leave\n    ret\n", out);
+
+        } else if (n == 2 && !strncmp(t1, "PRINT", MAX)) { // print
+
+            char arm_reg[MAX];
+            int reg = fetch_operand_x86_64(out, t2, phys_reg, arm_reg);
+            fprintf(out, "    mov rsi, %s\n", arm_reg);
+            free_reg_x86_64(reg);
+
+            fputs("    cmp rax, 1\n", out);
+            fprintf(out, "    je L_print%zu\n", print_idx);
+            fputs("    cmp rax, 2\n", out);
+            fprintf(out, "    je L_printb%zu\n", print_idx);
+
+            fputs("    lea rdi, [rip + .l_msg_int]\n", out);
+            fputs("    mov al, 0\n", out);
+            fputs("    call printf\n", out);
+            fprintf(out, "    jmp L_print_end%zu\n", print_idx);
+
+            fprintf(out, "L_print%zu:\n", print_idx);
+            fputs("    mov rdi, rsi\n", out);
+            fputs("    mov al, 0\n", out);
+            fputs("    call printf\n", out);
+            fprintf(out, "    jmp L_print_end%zu\n", print_idx);
+
+            fprintf(out, "L_printb%zu:\n", print_idx);
+            fputs("    lea r9, [rip + .l_msg_true]\n", out);
+            fputs("    lea r10, [rip + .l_msg_false]\n", out);
+            fputs("    cmp rsi, 1\n", out);
+            fputs("    cmove rdi, r9\n", out);
+            fputs("    cmovne rdi, r10\n", out);
+            fputs("    mov al, 0\n", out);
+            fputs("    call printf\n", out);
+
+            fprintf(out, "L_print_end%zu:\n\n", print_idx++);
+
+        } else if (n == 2 && !strncmp(t1, "JMP", MAX))
+            fprintf(out, "    jmp %s\n", t2);
+
+        else if (n == 3 && !strncmp(t1, "JMPF", MAX)) {
+            
+            char arm_reg[MAX];
+            size_t reg = fetch_operand_x86_64(out, t2, phys_reg, arm_reg);
+            (void)reg;
+
+            fputs("    cmp rax, 2\n", out);
+            fputs("    sete dl\n", out);
+            fprintf(out, "    cmp %s, 0\n", arm_reg);
+            fputs("    sete al\n", out);
+            fputs("    and dl, al\n", out); 
+            fputs("    cmp dl, 1\n", out);
+            fprintf(out, "    je %s\n", t3);
+
+        } else if (n == 2 && !strncmp(t1, "LABEL", MAX))
+            fprintf(out, "%s:\n", t2);
+
+        else if (n == 3 && !strncmp(t1, "PARAM", MAX)) {
+
+            size_t offset;
+            sscanf(t2, "@%zu", &offset);
+            size_t arg_idx;
+            sscanf(t3, "%zu", &arg_idx);
+
+            if (arg_idx == 0) {
+
+                fprintf(out, "    mov QWORD PTR [rbp - %zu], rdi\n", offset);
+                fprintf(out, "    mov QWORD PTR [rbp - %zu], rsi\n\n", offset - 8);
+
+            } else if (arg_idx == 1) {
+
+                fprintf(out, "    mov QWORD PTR [rbp - %zu], rdx\n", offset);
+                fprintf(out, "    mov QWORD PTR [rbp - %zu], rcx\n\n", offset - 8);
+
+            } else if (arg_idx == 2) {
+
+                fprintf(out, "    mov QWORD PTR [rbp - %zu], r8\n", offset);
+                fprintf(out, "    mov QWORD PTR [rbp - %zu], r9\n\n", offset - 8);
+
+            } else { 
+
+                size_t stack_arg_offset = 16 + ((arg_idx - 3) * 16) + 48;
+
+                fprintf(out, "    mov r10, QWORD PTR [rbp + %zu]\n", stack_arg_offset);
+                fprintf(out, "    mov r11, QWORD PTR [rbp + %zu]\n", stack_arg_offset + 8);
+                fprintf(out, "    mov QWORD PTR [rbp - %zu], r10\n", offset);
+                fprintf(out, "    mov QWORD PTR [rbp - %zu], r11\n\n", offset - 8);
             }
-        }
 
-        char t1[MAX], t2[MAX], t3[MAX], t4[MAX], t5[MAX], t6[MAX];
-        int n = sscanf(line, "%s %s %s %s %s %s", t1, t2, t3, t4, t5, t6);
+        } else if (n == 3 && !strncmp(t1, "ARG", MAX)) {
 
-        for (int i = 0; i < strlen(line); i++) {
+            size_t arg_idx;
+            sscanf(t2, "%zu", &arg_idx);
+            char arm_reg[MAX];
 
-            if (line[i] == '\x01')
-                line[i] = ' ';
-        }
+            if (t3[0] == '\"') {
 
-        fprintf(s, "    ; %s", line);
+                t3[strlen(t3) - 1] = NIL;
+                strncpy(strings[stringc], t3 + 1, MAX);
+                strings[stringc][MAX - 1] = NIL;
 
-        if (n == 1 && !strncmp(t1, "NEWLINE", MAX)) {
+                size_t reg = map_reg_x86_64();
+                reg = reg ? reg : 10;
 
-            fputs("    lea rdi, [rel empty]\n", s);
-            fputs("    call puts\n\n", s);
-        } 
-        
-        else if (n >= 2 && !strncmp(t1, "PRINT", MAX)) {
+                fprintf(out, "    lea r%zu, [rip + msg%zu]\n", reg, stringc++);
+                snprintf(arm_reg, MAX, "r%zu", reg);
+                fputs("    mov rax, 1\n", out);
 
-            if (is_string(t2, variables, var_types, varc, reg_types, local_types)) {
+                free_reg_x86_64(reg);
 
-                if (t2[0] == '\"') {
+            } else if (t3[0] == '#') {
 
-                    for (int i = 0; t2[i]; i++) {
+                size_t reg = map_reg_x86_64();
+                reg = reg ? reg : 10;
 
-                        if (t2[i] == '\x01')
-                            t2[i] = ' ';
-                    }
+                fprintf(out, "    mov r%zu, %d\n", reg, t3[1] == 't');
+                fputs("    mov rax, 2\n", out);
 
-                    size_t len = strlen(t2);
-                    if (len >= 2 && t2[0] == '\"' && t2[len - 1] == '\"') {
-
-                        t2[len - 1] = NIL;
-                        strncpy(strings[stringc], t2 + 1, MAX); // skip NASM quotes
-
-                    } else
-                        strncpy(strings[stringc], t2, MAX);
-
-                    fprintf(s, "    lea rdi, [rel msg%d]\n", stringc++);
-
-                } else if (t3[0] == '%') {
-
-                    char x86_reg[16];
-                    map_reg_x86(s, t2, x86_reg, "rdi");
-
-                    if (strcmp(x86_reg, "rdi") != 0)
-                        fprintf(s, "    mov rdi, %s\n", x86_reg);
-
-                } else
-                    fprintf(s, "    mov rdi, [rel _%s]\n", t2);
-
-                fputs("    xor eax, eax ; printf is variadic\n", s);
-                fputs("    call printf\n\n", s);
+                snprintf(arm_reg, MAX, "r%zu", reg);
+                free_reg_x86_64(reg);
 
             } else {
 
-                char x86_reg[16];
-
-                if (t2[0] == '%')
-                    map_reg_x86(s, t2, x86_reg, "rsi");
-
-                else if (isalpha(t2[0]) || t2[0] == '_') {
-
-                    fprintf(s, "    mov rsi, [rel _%s]\n", t2);
-                    strcpy(x86_reg, "rsi");
-
-                } else
-                    map_reg_x86(s, t2, x86_reg, "rsi");
-
-                fputs("    lea rdi, [rel l_msg_int]\n", s);
-
-                if (strcmp(x86_reg, "rsi") != 0)
-                    fprintf(s, "    mov rsi, %s\n", x86_reg);
-
-                fputs("    xor eax, eax\n", s);
-                fputs("    call printf\n\n", s);
+                size_t reg = fetch_operand_x86_64(out, t3, phys_reg, arm_reg);
+                free_reg_x86_64(reg);
             }
-        }
 
-        else if (n >= 3 && !strncmp(t2, "=", MAX)) {
+            if (arg_idx == 0) {
+
+                fprintf(out, "    mov rdi, %s\n", arm_reg);
+                fputs("    mov rsi, rax\n", out);
+
+            } else if (arg_idx == 1) {
+
+                fprintf(out, "    mov rdx, %s\n", arm_reg);
+                fputs("    mov rcx, rax\n", out);
+
+            } else if (arg_idx == 2) {
+
+                fprintf(out, "    mov r8, %s\n", arm_reg);
+                fputs("    mov r9, rax\n", out);
+
+            } else {
+
+                fputs("    push rax\n", out);
+                fprintf(out, "    push %s\n", arm_reg);
+            }
+
+        } else if (n == 5 && !strncmp(t3, "CALL", MAX)) {
+
+            size_t args;
+            sscanf(t5, "%zu", &args);
+
+            fputs("    push r10\n    push r11\n    push r12\n", out);
+            fputs("    push r13\n    push r14\n    push r15\n", out);
+
+            fprintf(out, "    call F%s\n", t4);
+
+            fputs("    pop r15\n    pop r14\n    pop r13\n", out);
+            fputs("    pop r12\n    pop r11\n    pop r10\n", out);
+
+            if (args > 3)
+                fprintf(out, "    add rsp, %zu\n", (args - 3) * 16);
+
+            size_t res;
+            sscanf(t1, "%%t%zu", &res);
+
+            stack_offset += 16;
+            phys_reg[res] = -stack_offset;
+
+            fprintf(out, "    mov QWORD PTR [rbp - %zu], rax\n", stack_offset);
+            fprintf(out, "    mov QWORD PTR [rbp - %zu], rdx\n\n", stack_offset - 8);
+
+        } else if (n >= 3 && !strncmp(t2, "=", MAX)) { // assignment
 
             int is_rhs_string = is_string(t3, variables, var_types, varc, reg_types, local_types);
-            
-            if (t1[0] != '%') { // Assignment to variable
+
+            if (t1[0] == '@') { // local variable
+
+                size_t offset;
+                sscanf(t1, "@%zu", &offset);
+                local_types[offset] = is_rhs_string;
+
+                char load_reg[MAX]; 
+                size_t reg = 0;
+
+                if (t3[0] == '\"') {
+
+                    t3[strlen(t3) - 1] = NIL;
+                    strncpy(strings[stringc], t3 + 1, MAX);
+                    strings[stringc][MAX - 1] = NIL;
+
+                    reg = map_reg_x86_64();
+                    reg = reg ? reg : 10;
+
+                    fprintf(out, "    lea r%zu, [rip + msg%zu]\n", reg, stringc++);
+                    snprintf(load_reg, MAX, "r%zu", reg);
+                    fputs("    mov rax, 1\n", out);
+
+                } else if (t3[0] == '#') {
+
+                    reg = map_reg_x86_64();
+                    reg = reg ? reg : 10;
+
+                    fprintf(out, "    mov r%zu, %d\n", reg, t3[1] == 't');
+                    fputs("    mov rax, 2\n", out);
+                    snprintf(load_reg, MAX, "r%zu", reg);
+
+                    free_reg_x86_64(reg);
+
+                } else
+                    reg = fetch_operand_x86_64(out, t3, phys_reg, load_reg);
+
+                fprintf(out, "    mov QWORD PTR [rbp - %zu], %s\n", offset, load_reg);
+                fprintf(out, "    mov QWORD PTR [rbp - %zu], rax\n\n", offset - 8);
+
+                free_reg_x86_64(reg);
+
+            } else if (t1[0] != '%') { // global variable
 
                 char* name = t1;
                 int v_idx = -1;
 
                 for (int i = 0; i < varc; i++) {
-                    if (!strncmp(variables[i], name, MAX))
-                        v_idx = i; break;
+                    if (!strncmp(variables[i], name, MAX)) {
+
+                        v_idx = i;
+                        break;
+                    }
                 }
 
                 if (v_idx == -1) {
@@ -1145,153 +1447,299 @@ void transpile_nasm_x86_64(FILE* ir, FILE* s) {
 
                 var_types[v_idx] = is_rhs_string;
 
-
-                char src_reg[16];
+                char load_reg[MAX];
+                size_t reg = 0;
 
                 if (t3[0] == '\"') {
 
-                    for (int i = 0; t3[i]; i++) {
+                    t3[strlen(t3) - 1] = NIL;
+                    strncpy(strings[stringc], t3 + 1, MAX);
+                    strings[stringc][MAX - 1] = NIL;
 
-                        if (t3[i] == '\x01')
-                            t3[i] = ' ';
-                    }
+                    reg = map_reg_x86_64();
+                    reg = reg ? reg : 10;
 
-                    strncpy(strings[stringc], t3, 255);
-                    strings[stringc][255] = '\0';
-
-                    fprintf(s, "    lea rax, [rel msg%d]\n", stringc++);
-                    strcpy(src_reg, "rax");
-
-                } else if (isalpha(t3[0]) || t3[0] == '_') {
-
-                    fprintf(s, "    mov rax, [rel _%s]\n", t3);
-                    strcpy(src_reg, "rax");
+                    fprintf(out, "    lea r%zu, [rip + msg%zu]\n", reg, stringc++);
+                    snprintf(load_reg, MAX, "r%zu", reg);
+                    fputs("    mov rax, 1\n", out);
 
                 } else
-                    map_reg_x86(s, t3, src_reg, "rax");
+                    reg = fetch_operand_x86_64(out, t3, phys_reg, load_reg);
 
-                fprintf(s, "    mov [rel _%s], %s\n\n", name, src_reg);
-            } 
-            else { // Arithmetic or Temporary Assignment
+                size_t dest = map_reg_x86_64();
+                dest = dest ? dest : 11;
 
-                int d_idx; sscanf(t1, "%%t%d", &d_idx);
-                char hw_dest[16]; snprintf(hw_dest, 16, "r%d", (d_idx % 6) + 10);
-                reg_types[d_idx] = is_rhs_string;
+                fprintf(out, "    lea r%zu, [rip + _%s]\n", dest, name);
+                fprintf(out, "    mov QWORD PTR [r%zu], %s\n", dest, load_reg);
+                fprintf(out, "    mov QWORD PTR [r%zu + 8], rax\n", dest);
 
-                if (!strncmp(t3, "ADD", MAX) || !strncmp(t3, "SUB", MAX) || !strncmp(t3, "MUL", MAX) || !strncmp(t3, "DIV", MAX) || !strncmp(t3, "REM", MAX) || !strncmp(t3, "POW", MAX)) {
-
-                    char reg1[16], reg2[16];
-                    map_reg_x86(s, t4, reg1, "rax");
-                    map_reg_x86(s, t5, reg2, "rcx");
-
-                    if (!strncmp(t3, "ADD", MAX))
-                        fprintf(s, "    mov %s, %s\n    add %s, %s\n", hw_dest, reg1, hw_dest, reg2);
-                    
-                    else if (!strncmp(t3, "SUB", MAX))
-                        fprintf(s, "    mov %s, %s\n    sub %s, %s\n", hw_dest, reg1, hw_dest, reg2);
-
-                    else if (!strncmp(t3, "MUL", MAX))
-                        fprintf(s, "    mov rax, %s\n    imul rax, %s\n    mov %s, rax\n", reg1, reg2, hw_dest);
-
-                    else if (!strncmp(t3, "DIV", MAX) || !strncmp(t3, "REM", MAX)) {
-                        fprintf(s, "    mov rax, %s\n    cqo\n    idiv %s\n", reg1, reg2);
-                        fprintf(s, "    mov %s, %s\n", hw_dest, !strncmp(t3, "REM", MAX) ? "rdx" : "rax");
-
-                    } else if (!strncmp(t3, "REM", MAX)) {
-                        fprintf(s, "    mov rax, %s\n    cqo\n    idiv %s\n", reg1, reg2);
-                        fprintf(s, "    mov %s, rdx\n", hw_dest);
-
-
-                    } else if (!strncmp(t3, "POW", MAX)) {
-
-                        char base_reg[16], exp_reg[16];
-
-                        map_reg_x86(s, t4, base_reg, "rax");
-                        map_reg_x86(s, t5, exp_reg, "rcx");
-
-                        fprintf(s, "    cvtsi2sd xmm0, %s\n", base_reg);
-                        fprintf(s, "    cvtsi2sd xmm1, %s\n", exp_reg);
-                        fputs("    call pow\n", s);
-                        fprintf(s, "    cvttsd2si %s, xmm0\n\n", hw_dest);
-}
-                } else if (isalpha(t3[0]) || t3[0] == '_') // variable
-                                                             //
-                    fprintf(s, "    mov %s, [rel _%s]\n", hw_dest, t3);
-
-                else if (t3[0] == '\"') { // string literal
-
-                    for (int i = 0; t3[i]; i++) {
-
-                        if (t3[i] == '\x01')
-                            t3[i] = ' ';
-                    }
-
-                    strncpy(strings[stringc], t3, MAX);
-                    fprintf(s, "    lea %s, [rel msg%d]\n", hw_dest, stringc++);
-
-                } else // literal
-                    map_reg_x86(s, t3, hw_dest, hw_dest);
-
+                free_reg_x86_64(dest);
+                free_reg_x86_64(reg);
             }
+
+            size_t dest;
+            sscanf(t1, "%%t%zu", &dest);
+            char arm_reg[MAX];
+
+            if (!phys_reg[dest]) {
+
+                stack_offset += 16;
+                phys_reg[dest] = -stack_offset;
+            }
+
+            snprintf(arm_reg, MAX, "r8");
+
+            if (!strncmp(t3, "NOT", MAX)) {
+                    
+                char r1[16];
+                int p1 = fetch_operand_x86_64(out, t4, phys_reg, r1);
+
+                fputs("    cmp rcx, 2\n", out);
+                fputs("    sete dl\n", out);
+                fprintf(out, "    cmp %s, 0\n", r1);
+                fputs("    sete al\n", out);
+                fputs("    and al, dl\n", out);
+                fprintf(out, "    movzx %s, al\n", arm_reg);
+
+                free_reg_x86_64(p1);
+
+            } else if (!strncmp(t3, "ADD", MAX) || !strncmp(t3, "SUB", MAX) || !strncmp(t3, "MUL", MAX) ||
+                !strncmp(t3, "DIV", MAX) || !strncmp(t3, "REM", MAX) || 
+                !strncmp(t3, "AND", MAX) || !strncmp(t3, "OR", MAX) ||
+                !strncmp(t3, "LESS", MAX) || !strncmp(t3, "LESS_EQUAL", MAX) ||
+                !strncmp(t3, "GREATER", MAX) || !strncmp(t3, "GREATER_EQUAL", MAX) ||
+                !strncmp(t3, "EQL", MAX) || !strncmp(t3, "NOT_EQUAL", MAX) ||
+                !strncmp(t3, "CONCAT", MAX)) {
+
+                char r1[16];
+                int p1 = fetch_operand_x86_64(out, t4, phys_reg, r1);
+                
+                fputs("    mov rdi, rax\n", out);
+                fprintf(out, "    mov %s, %s\n", arm_reg, r1);
+
+                char r2[16];
+                int p2 = fetch_operand_x86_64(out, t5, phys_reg, r2);
+
+                if (!strncmp(t3, "ADD", MAX))
+                    fprintf(out, "    add %s, %s\n", arm_reg, r2);
+
+                else if (!strncmp(t3, "SUB", MAX))
+                    fprintf(out, "    sub %s, %s\n", arm_reg, r2);
+
+                else if (!strncmp(t3, "MUL", MAX))
+                    fprintf(out, "    imul %s, %s\n", arm_reg, r2);
+
+                else if (!strncmp(t3, "DIV", MAX)) {
+
+                    fprintf(out, "    mov rax, %s\n", arm_reg);
+                    fputs("    cqo\n", out);
+                    fprintf(out, "    idiv %s\n", r2);
+                    fprintf(out, "    mov %s, rax\n", arm_reg);
+
+                } else if (!strncmp(t3, "REM", MAX)) {
+
+                    fprintf(out, "    mov rax, %s\n", arm_reg);
+                    fputs("    cqo\n", out);
+                    fprintf(out, "    idiv %s\n", r2);
+                    fprintf(out, "    mov %s, rdx\n", arm_reg);
+
+                } else if (!strncmp(t3, "POW", MAX)) {
+
+                    fprintf(out, "    cvtsi2sd xmm0, %s\n", arm_reg);
+                    fprintf(out, "    cvtsi2sd xmm1, %s\n", r2);
+                    
+                    fputs("    push r10\n    push r11\n    push r12\n", out);
+                    fputs("    push r13\n    push r14\n    push r15\n", out);
+                    
+                    fputs("    call pow\n", out);
+                    
+                    fputs("    pop r15\n    pop r14\n    pop r13\n", out);
+                    fputs("    pop r12\n    pop r11\n    pop r10\n", out);
+                    
+                    fprintf(out, "    cvttsd2si %s, xmm0\n", arm_reg);
+
+                } else if (!strncmp(t3, "LESS", MAX)) {
+
+                    fprintf(out, "    cmp %s, %s\n", arm_reg, r2);
+                    fprintf(out, "    setl al\n    movzx %s, al\n", arm_reg);
+
+                } else if (!strncmp(t3, "LESS_EQUAL", MAX)) {
+
+                    fprintf(out, "    cmp %s, %s\n", arm_reg, r2);
+                    fprintf(out, "    setle al\n    movzx %s, al\n", arm_reg);
+
+                } else if (!strncmp(t3, "GREATER", MAX)) {
+
+                    fprintf(out, "    cmp %s, %s\n", arm_reg, r2);
+                    fprintf(out, "    setg al\n    movzx %s, al\n", arm_reg);
+
+                } else if (!strncmp(t3, "GREATER_EQUAL", MAX)) {
+
+                    fprintf(out, "    cmp %s, %s\n", arm_reg, r2);
+                    fprintf(out, "    setge al\n    movzx %s, al\n", arm_reg);
+
+                } else if (!strncmp(t3, "NOT_EQUAL", MAX)) {
+
+                    fputs("    cmp rdi, rax\n", out);
+                    fputs("    setne dl\n", out);
+                    fprintf(out, "    cmp %s, %s\n", arm_reg, r2);
+                    fputs("    setne al\n", out);
+                    fputs("    or al, dl\n", out);
+                    fprintf(out, "    movzx %s, al\n", arm_reg);
+
+                } else if (!strncmp(t3, "EQL", MAX)) {
+
+                    fputs("    cmp rdi, rax\n", out);
+                    fputs("    sete dl\n", out);
+                    fprintf(out, "    cmp %s, %s\n", arm_reg, r2);
+                    fputs("    sete al\n", out);
+                    fputs("    and al, dl\n", out);
+                    fprintf(out, "    movzx %s, al\n", arm_reg);
+
+                } else if (!strncmp(t3, "AND", MAX) || !strncmp(t3, "OR", MAX)) {
+
+                    fputs("    cmp rdi, 2\n    sete dl\n", out);
+                    fprintf(out, "    cmp %s, 0\n", arm_reg);
+                    fputs("    sete cl\n    and dl, cl\n    xor dl, 1\n", out);
+                    fputs("    movzx r10, dl\n", out);
+
+                    fputs("    cmp rcx, 2\n    sete dl\n", out);
+                    fprintf(out, "    cmp %s, 0\n", r2);
+                    fputs("    sete al\n    and dl, al\n    xor dl, 1\n", out);
+                    fputs("    movzx r11, dl\n", out);
+
+                    if (!strncmp(t3, "AND", MAX))
+                        fprintf(out, "    and r10, r11\n    mov %s, r10\n", arm_reg);
+
+                    else
+                        fprintf(out, "    or r10, r11\n    mov %s, r10\n", arm_reg);
+
+                } else if (!strncmp(t3, "CONCAT", MAX)) {
+                    
+                    fputs("    sub rsp, 64\n", out);
+                    fputs("    mov rsi, rdi\n", out);
+                    fprintf(out, "    mov rdi, %s\n", arm_reg);
+                    fprintf(out, "    mov rdx, %s\n", r2);
+                    fputs("    mov rcx, rax\n", out);
+                    fputs("    call _builtin_concat\n", out);
+                    fprintf(out, "    mov %s, rax\n", arm_reg);
+                    fputs("    add rsp, 64\n", out);
+                }
+
+                free_reg_x86_64(p1);
+                free_reg_x86_64(p2);
+
+            } else {
+
+                char load_reg[MAX];
+                size_t reg = fetch_operand_x86_64(out, t3, phys_reg, load_reg);
+
+                if (strncmp(arm_reg, load_reg, MAX))
+                    fprintf(out, "    mov %s, %s\n", arm_reg, load_reg);
+
+                free_reg_x86_64(reg);
+            }
+
+            if (!strncmp(t3, "ADD", MAX) || !strncmp(t3, "SUB", MAX) || !strncmp(t3, "MUL", MAX) ||
+                !strncmp(t3, "DIV", MAX) || !strncmp(t3, "REM", MAX) || !strncmp(t3, "POW", MAX))
+                fputs("    mov rax, 0\n", out);
+
+            else if (t3[0] == '\"' || !strncmp(t3, "CONCAT", MAX))
+                fputs("    mov rax, 1\n", out);
+
+            else if (!strncmp(t3, "AND", MAX) || !strncmp(t3, "OR", MAX) ||
+                     !strncmp(t3, "LESS",  MAX) || !strncmp(t3, "LESS_EQUAL",  MAX) ||
+                     !strncmp(t3, "GREATER",  MAX) || !strncmp(t3, "GREATER_EQUAL",  MAX) ||
+                     !strncmp(t3, "EQL",  MAX) || !strncmp(t3, "NOT_EQUAL", MAX) ||
+                     !strncmp(t3, "NOT", MAX))
+                fputs("    mov rax, 2\n", out);
+
+            size_t actual_offset = -phys_reg[dest]; 
+            fprintf(out, "    mov QWORD PTR [rbp - %zu], r8\n", actual_offset);
+            fprintf(out, "    mov QWORD PTR [rbp - %zu], rax\n\n", actual_offset - 8);
         }
     }
 
     // Epilogue
-    fputs("; === EPILOGUE ===\n", s);
-    fputs("    mov eax, 0\n", s);
-    fputs("    leave\n", s);
-    fputs("    ret\n\n", s);
+    fputs("    ; === EPILOGUE ===\n", out);
+    fputs("    mov rax, 0\n", out);
+    fputs("    leave\n", out);
+    fputs("    ret\n\n", out);
 
-    // Data Sections
+    fputs("; === FUNCTIONS ===\n\n", out);
+    
+    fputs("_builtin_to_string:\n", out);
+    fputs("    push rbp\n    mov rbp, rsp\n    sub rsp, 32\n", out);
+    fputs("    cmp rsi, 1\n    je 1f\n", out);
+    fputs("    cmp rsi, 2\n    je 2f\n", out);
+    fputs("    mov [rbp - 8], rdi\n", out);
+    fputs("    mov rdi, 32\n    call malloc\n", out);
+    fputs("    mov r9, rax\n", out);
+    fputs("    mov rdx, [rbp - 8]\n", out);
+    fputs("    lea rsi, [rip + .l_msg_int]\n", out);
+    fputs("    mov rdi, r9\n", out);
+    fputs("    mov al, 0\n    call sprintf\n", out);
+    fputs("    mov rax, r9\n    jmp 1f\n", out);
+    fputs("2:\n    lea r9, [rip + .l_msg_true]\n", out);
+    fputs("    lea r10, [rip + .l_msg_false]\n", out);
+    fputs("    cmp rdi, 1\n    cmove rax, r9\n    cmovne rax, r10\n", out);
+    fputs("1:\n    leave\n    ret\n\n", out);
+
+    fputs("_builtin_concat:\n", out);
+    fputs("    push rbp\n    mov rbp, rsp\n    sub rsp, 64\n", out);
+    fputs("    mov [rbp - 8], rdx\n", out);
+    fputs("    mov [rbp - 16], rcx\n", out);
+    fputs("    call _builtin_to_string\n", out);
+    fputs("    mov [rbp - 24], rax\n", out);
+    fputs("    mov rdi, [rbp - 8]\n", out);
+    fputs("    mov rsi, [rbp - 16]\n", out);
+    fputs("    call _builtin_to_string\n", out);
+    fputs("    mov [rbp - 32], rax\n", out);
+    fputs("    mov rdi, 512\n    call malloc\n", out);
+    fputs("    mov [rbp - 40], rax\n", out);
+    fputs("    mov rdi, [rbp - 40]\n    mov rsi, [rbp - 24]\n    call strcpy\n", out);
+    fputs("    mov rdi, [rbp - 40]\n    mov rsi, [rbp - 32]\n    call strcat\n", out);
+    fputs("    mov rax, [rbp - 40]\n", out);
+    fputs("    leave\n    ret\n\n", out);
+
+    char func[MAX];
+    rewind(buf);
+    while (fgets(func, MAX, buf)) fputs(func, out);
+    fclose(buf);
+
     if (varc > 0) {
-        fputs("section .data\n", s);
-        for (int i = 0; i < varc; i++) fprintf(s, "_%s: dq 0\n", variables[i]);
+
+        fputs("\n; === GLOBAL VARIABLES ===\n", out);
+        fputs(".data\n.align 8\n", out);
+
+        for (size_t i = 0; i < varc; i++) 
+            fprintf(out, "_%s: .quad 0, 0\n", variables[i]);
+        fputc('\n', out);
     }
 
-    fputs("\nsection .rodata\n", s);
-    fputs("l_msg_int: db \"%lld\", 0\n", s);
-    fputs("empty: db 0\n", s);
+    fputs("\n; === C STRINGS ===\n", out);
+    fputs(".section .rodata\n", out);
+    fputs(".l_msg_int: .asciz \"%lld\"\n", out);
+    fputs(".l_msg_true: .asciz \"#t\"\n", out);
+    fputs(".l_msg_false: .asciz \"#f\"\n", out);
 
-    for (int i = 0; i < stringc; i++) {
+    for (size_t i = 0; i < stringc; i++) {
 
-        fprintf(s, "msg%d: db ", i);
+        size_t k = 0;
+        for (size_t j = 0; strings[i][j]; j++) {
 
-        for (int j = 0; strings[i][j]; j++) {
+            if (strings[i][j] == '\x01')
+                strings[i][k++] = ' ';
 
-            if (strings[i][j] == '\\') {
-
-                j++;
-
-                switch (strings[i][j]) {
-
-                    case 'n':  fputs("10, ", s); break;
-                    case 'r':  fputs("13, ", s); break;
-                    case 't':  fputs("9, ", s);  break;
-                    case 'a':  fputs("7, ", s);  break;
-                    case '?':  fputs("63, ", s); break;
-                    case '\'': fputs("39, ", s); break;
-                    case '\"': fputs("34, ", s); break;
-                    case '\\': fputs("92, ", s); break;
-
-                    case NIL:
-                        j--;
-                        fputs("92, ", s);
-                        break;
-
-                    default:
-                        fprintf(s, "%d, ", (unsigned char)strings[i][j]);
-                        break;
-                }
-
-            } else
-                fprintf(s, "%d, ", (unsigned char)strings[i][j]);
+            else
+                strings[i][k++] = strings[i][j];
         }
 
-        fputs("0\n", s);
+        strings[i][k] = NIL;
+        fprintf(out, "msg%zu: .asciz \"%s\"\n", i, strings[i]);
     }
 }
 
-#endif
 
 
 

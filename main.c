@@ -13,7 +13,7 @@ int main(int argc, char** argv) {
 
     char src_path[MAX] = {NIL};
 
-    bool nasm = false;
+    bool gnu = false;
     bool clean = false;
     bool run = false;
     bool compile = false;
@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
 
         // TODO: make REPL later
 
-        puts("Usage: lispc.out <path-to-script.lisp> [-nasm|-clean|-run|-compile]");
+        puts("Usage: lispc.out <path-to-script.lisp> [-gnu|-clean|-run|-compile]");
         puts("Note: Default target is ARM64");
         puts("Note: REPL is under construction");
     }
@@ -31,8 +31,8 @@ int main(int argc, char** argv) {
 
         if (argv[i][0] == '-') {
 
-            if (!strncmp(argv[i], "-nasm", MAX))
-                nasm = true;
+            if (!strncmp(argv[i], "-gnu", MAX))
+                gnu = true;
 
             else if (!strncmp(argv[i], "-clean", MAX))
                 clean = true;
@@ -82,19 +82,31 @@ int main(int argc, char** argv) {
     strncat(s, ".s", MAX);
 
     FILE* _src = fopen(src, "r");
-    assert(_src);
+    if (!_src) {
+
+        fprintf(stderr, "ERROR: No file or directory `%s` exists\n", src);
+        exit(EX_IOERR);
+    }
 
     FILE* _ir = fopen(ir, "w+");
-    assert(_ir);
+    if (!_ir) {
+
+        fprintf(stderr, "ERROR: No file or directory `%s` exists\n", ir);
+        exit(EX_IOERR);
+    }
 
     FILE* _s = fopen(s, "w");
-    assert(_s);
+    if (!_s) {
+
+        fprintf(stderr, "ERROR: No file or directory `%s` exists\n", s);
+        exit(EX_IOERR);
+    }
 
     compilef(_src, _ir);
     rewind(_ir);
 
-    if (nasm);
-        // TODO: transpile_nasm_x86_64
+    if (gnu)
+        transpile_gnu_x86_64(_ir, _s);
 
     else
         transpile_darwin_ARM64(_ir, _s);
@@ -117,24 +129,8 @@ int main(int argc, char** argv) {
 
         if (!fork()) {
 
-            if (nasm) {
-
-                #ifdef __linux__
-
-                execlp("nasm", "nasm", "-f", "elf64", "-o", obj, s, NULL);
-                exit(EXIT_FAILURE);
-
-                #endif
-            }
-
-            if (!fork()) {
-
-                execlp("cc", "cc", "-save-temps", "-o", exec, s, NULL);
-                exit(EXIT_FAILURE);
-            }
-            wait(NULL);
-
-            exit(EXIT_SUCCESS);
+            execlp("cc", "cc", "-save-temps", "-lm", "-o", exec, s, NULL);
+            exit(EXIT_FAILURE);
         }
         wait(NULL);
 
@@ -156,6 +152,8 @@ int main(int argc, char** argv) {
 
     return 0;
 }
+
+
 
 
 
