@@ -1111,7 +1111,7 @@ void transpile_gnu_x86_64(FILE* ir, FILE* s) {
     FILE* out = s;
 
     // x86_64 Prologue using Intel Syntax
-    fputs("; === PROLOGUE ===\n", out);
+    fputs("# === PROLOGUE ===\n", out);
     fputs(".intel_syntax noprefix\n", out);
     fputs(".globl main\n", out);
     fputs(".align 4\n\n", out);
@@ -1152,15 +1152,15 @@ void transpile_gnu_x86_64(FILE* ir, FILE* s) {
         if (n == 2 && !strncmp(t1, "FUNC", MAX)) {
 
             out = buf;
-            fprintf(out, "; %s", line);
+            fprintf(out, "# %s", line);
 
         } else if (n == 2 && !strncmp(t1, "END", MAX)) {
 
-            fprintf(out, "; %s\n", line);
+            fprintf(out, "# %s\n", line);
             out = s;
 
         } else
-            fprintf(out, "    ; %s", line);
+            fprintf(out, "    # %s", line);
 
         if (n == 1 && !strncmp(t1, "PANIC", MAX))
             fputs("    call abort\n", out);
@@ -1198,7 +1198,7 @@ void transpile_gnu_x86_64(FILE* ir, FILE* s) {
 
         } else if (n == 2 && !strncmp(t1, "RET", MAX)) {
 
-            fputs("; === EPILOGUE ===\n", out);
+            fputs("# === EPILOGUE ===\n", out);
 
             char arm_reg[MAX];
             int reg = fetch_operand_x86_64(out, t2, phys_reg, arm_reg);
@@ -1661,12 +1661,12 @@ void transpile_gnu_x86_64(FILE* ir, FILE* s) {
     }
 
     // Epilogue
-    fputs("    ; === EPILOGUE ===\n", out);
+    fputs("    # === EPILOGUE ===\n", out);
     fputs("    mov rax, 0\n", out);
     fputs("    leave\n", out);
     fputs("    ret\n\n", out);
 
-    fputs("; === FUNCTIONS ===\n\n", out);
+    fputs("# === FUNCTIONS ===\n\n", out);
     
     fputs("_builtin_to_string:\n", out);
     fputs("    push rbp\n    mov rbp, rsp\n    sub rsp, 32\n", out);
@@ -1709,7 +1709,7 @@ void transpile_gnu_x86_64(FILE* ir, FILE* s) {
 
     if (varc > 0) {
 
-        fputs("\n; === GLOBAL VARIABLES ===\n", out);
+        fputs("\n# === GLOBAL VARIABLES ===\n", out);
         fputs(".data\n.align 8\n", out);
 
         for (size_t i = 0; i < varc; i++) 
@@ -1717,7 +1717,7 @@ void transpile_gnu_x86_64(FILE* ir, FILE* s) {
         fputc('\n', out);
     }
 
-    fputs("\n; === C STRINGS ===\n", out);
+    fputs("\n# === C STRINGS ===\n", out);
     fputs(".section .rodata\n", out);
     fputs(".l_msg_int: .asciz \"%lld\"\n", out);
     fputs(".l_msg_true: .asciz \"#t\"\n", out);
