@@ -145,7 +145,7 @@ int main(int argc, char** argv) {
 
         if (!fork()) {
 
-            execlp("cc", "cc", "-save-temps", "-o", exec, s, "-lm", NULL);
+            execlp("cc", "cc", "-s", "-save-temps", "-o", exec, s, "-lm", NULL);
             exit(EXIT_FAILURE);
         }
         wait(NULL);
@@ -290,7 +290,7 @@ void repl(void) {
             fclose(s);
             s = NULL;
 
-            system("cc -o .tmp/.repl.out .tmp/.repl.s -lm 2>/dev/null && ./.tmp/.repl.out");
+            system("cc -s -o .tmp/.repl.out .tmp/.repl.s -lm 2>/dev/null && ./.tmp/.repl.out");
             exit(EXIT_SUCCESS);
         }
         int status;

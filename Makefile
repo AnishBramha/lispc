@@ -1,8 +1,8 @@
 CXX = cc
 UNAME_S := $(shell uname -s)
 
-CXXFLAGS = -std=c23 -Wall -Wextra -Wpedantic -Werror -Wno-sign-compare -g -MMD -fno-common
-LDFLAGS = -g -lm
+CXXFLAGS = -std=c23 -Wall -Wextra -Wpedantic -Werror -Wno-sign-compare -MMD -fno-common -O3 -flto -march=native -DNDEBUG
+LDFLAGS = -lm -O3 -flto
 
 ifeq ($(UNAME_S),Linux)
     CXXFLAGS += -D_GNU_SOURCE -Wno-stringop-overflow -Wno-format-truncation -Wno-implicit-fallthrough
