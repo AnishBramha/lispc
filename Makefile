@@ -1,7 +1,7 @@
 CXX = cc
 
 CXXFLAGS = -std=c23 -Wall -Wextra -Wpedantic -Werror -Wno-sign-compare -fsanitize=address,undefined -g -MMD -fno-common
-# CXXFLAGS = -std=c23 -Wno-sign-compare -g -MMD
+# CXXFLAGS = -std=c23 -Wno-sign-compare -g -MMD -Wno-stringop-overflow
 
 LDFLAGS = -fsanitize=address,undefined -g
 # LDFLAGS = -g
