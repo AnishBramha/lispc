@@ -1,5 +1,5 @@
-#include "./transpiler.h"
-#include "./common.h"
+#include "../transpiler/transpiler.h"
+#include "../common.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -229,6 +229,12 @@ void transpile_darwin_ARM64(FILE* ir, FILE* s) {
 
         bool in_quote = false;
         for (char* p = line; *p; p++) {
+
+            if (*p == '\\' && *(p + 1) != NIL) {
+
+                p++; 
+                continue;
+            }
 
             if (*p == '\"')
                 in_quote = !in_quote;

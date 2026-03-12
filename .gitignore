@@ -5,4 +5,7 @@
 *.exe
 *.d
 build
+target
+.temp
+temp
 .DS_Store

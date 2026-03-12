@@ -2,7 +2,7 @@
 
 #include <stdio.h>
 
-#include "./parser.h"
+#include "../parser/parser.h"
 
 typedef enum {
 

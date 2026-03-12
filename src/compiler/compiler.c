@@ -1,15 +1,15 @@
-#include "./compiler.h"
-#include "./common.h"
-#include "./tokeniser.h"
+#include "../compiler/compiler.h"
+#include "../common.h"
+#include "../lexer/lexer.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 
 #define STD_ARRAY
-#include "./std/array.h"
+#include "../../std/array.h"
 #define STD_TABLE
-#include "./std/table.h"
+#include "../../std/table.h"
 
 
 Symbol* var_namespace = NULL;

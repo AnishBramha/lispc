@@ -8,13 +8,11 @@ Single-pass Lisp subset compiler
 
 ## Usage
 
-`lispc <file>.lisp [-gnu|-clean|-run|-compile]`
+`lispc <file>.lisp [-gnu|-clean|-run|-compile|-help]`
 
-- Default target is Darwin
 - Options:
-    * `-gnu`: Compiles to GAS x86-64 for Linux
-    * `-clean`: Produces no intermediate files
-    * `-run`: Runs the produced executable
-    * `-compile`: Compiles to Assembly, but does not link to form executable
+    * `-clean`: Produce no intermediate files
+    * `-run`: Run the produced executable
+    * `-compile`: Compile to Assembly, but do not link to form executable
 
-
+- No options starts an REPL

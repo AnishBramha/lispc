@@ -2,7 +2,7 @@ CXX = cc
 UNAME_S := $(shell uname -s)
 
 CXXFLAGS = -std=c23 -Wall -Wextra -Wpedantic -Werror -Wno-sign-compare -g -MMD -fno-common
-LDFLAGS = -g
+LDFLAGS = -g -lm
 
 ifeq ($(UNAME_S),Linux)
     CXXFLAGS += -fsanitize=address,undefined -D_GNU_SOURCE -Wno-stringop-overflow -Wno-format-truncation -Wno-implicit-fallthrough
@@ -14,8 +14,9 @@ ifeq ($(UNAME_S),Darwin)
     LDFLAGS  += -fsanitize=address,undefined
 endif
 
-TARGET = lispc.out
+TARGET = target/lispc.out
 BUILD_DIR = build
+TARGET_DIR = target
 
 SRCS = $(shell find . -name "*.c")
 OBJS = $(patsubst ./%.c,$(BUILD_DIR)/%.o,$(SRCS))
@@ -38,6 +39,7 @@ $(eval $(COLOR_CODES))
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
+	@mkdir -p $(dir $@)
 	@printf "\n$(BOLD)$(GREEN)Compilation finished with code %d ✓$(RESET)\n" $$status;
 	@echo "\n$(BOLD)$(CYAN)Linking ↺$(RESET)"
 	@if ! $(CXX) $(LDFLAGS) -o $@ $^ > /dev/null ; then \
@@ -65,7 +67,7 @@ clean:
 
 clear:
 	@echo "Clearing project directory 🗑️"
-	rm -rf $(BUILD_DIR) $(TARGET)
+	rm -rf $(BUILD_DIR) $(TARGET) $(TARGET_DIR)
 
 -include $(DEPS)
 
