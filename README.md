@@ -11,7 +11,6 @@ Single-pass Lisp subset compiler
 `lispc <file>.lisp [-gnu|-clean|-run|-compile]`
 
 - Default target is Darwin
-- For GAS, uncomment the compiler variables in the Makefile
 - Options:
     * `-gnu`: Compiles to GAS x86-64 for Linux
     * `-clean`: Produces no intermediate files

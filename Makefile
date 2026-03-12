@@ -1,10 +1,18 @@
 CXX = cc
+UNAME_S := $(shell uname -s)
 
-CXXFLAGS = -std=c23 -Wall -Wextra -Wpedantic -Werror -Wno-sign-compare -fsanitize=address,undefined -g -MMD -fno-common
-# CXXFLAGS = -std=c23 -Wno-sign-compare -g -MMD -Wno-stringop-overflow
+CXXFLAGS = -std=c23 -Wall -Wextra -Wpedantic -Werror -Wno-sign-compare -g -MMD -fno-common
+LDFLAGS = -g
 
-LDFLAGS = -fsanitize=address,undefined -g
-# LDFLAGS = -g
+ifeq ($(UNAME_S),Linux)
+    CXXFLAGS += -fsanitize=address,undefined -D_GNU_SOURCE -Wno-stringop-overflow -Wno-format-truncation -Wno-implicit-fallthrough
+    LDFLAGS  += -fsanitize=address,undefined
+endif
+
+ifeq ($(UNAME_S),Darwin)
+    CXXFLAGS += -fsanitize=address,undefined
+    LDFLAGS  += -fsanitize=address,undefined
+endif
 
 TARGET = lispc.out
 BUILD_DIR = build
