@@ -1,0 +1,8 @@
+%t0 = CONCAT 1 " + "
+%t1 = CONCAT %t0 1
+%t2 = CONCAT %t1 " = "
+%t3 = CONCAT %t2 2
+%t4 = CONCAT %t3 " -> "
+%t5 = CONCAT %t4 #t
+PRINT %t5
+

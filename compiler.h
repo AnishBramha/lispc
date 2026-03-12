@@ -55,7 +55,9 @@ char* unsafe_compile_symbol(ASTNode*);
 char* unsafe_compile_call(FILE* ir, ASTNode*);
 char* unsafe_fold_comparison(FILE* ir, ASTNode*, const char* op);
 char* unsafe_compile_if(FILE* ir, ASTNode*);
-
+char* unsafe_compile_concat(FILE* ir, ASTNode*);
+char* unsafe_compile_panic(FILE* ir, ASTNode*);
+char* unsafe_compile_error(FILE* ir, ASTNode*);
 
 
 

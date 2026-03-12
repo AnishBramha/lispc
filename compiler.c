@@ -163,6 +163,9 @@ char* unsafe_compile_list(FILE* ir, ASTNode* node) {
 
         case PRINT:   return unsafe_compile_print(ir, node);
         case NEWLINE: return unsafe_compile_newline(ir);
+        case CONCAT:  return unsafe_compile_concat(ir, node);
+        case PANIC:   return unsafe_compile_panic(ir, node);
+        case ERROR:   return unsafe_compile_error(ir, node);
 
         case DEFVAR: return unsafe_compile_defvar(ir, node);
         case DEFUN:  return unsafe_compile_defun(ir, node);
@@ -759,6 +762,81 @@ char* unsafe_compile_if(FILE* ir, ASTNode* node) {
     return res;
 }
 
+
+char* unsafe_compile_concat(FILE* ir, ASTNode* node) {
+
+    if (arr_len(node->children) < 2) {
+
+        fprintf(stderr, "COMPILATION ERROR: Not enough arguments for `concat` function on line %zu\n", node->children[0]->current->line);
+        freeAST(true, node);
+        exit(EX_DATAERR);
+    }
+
+    if (arr_len(node->children) == 2) {
+
+        char* str = unsafe_compile_node(ir, node->children[1]);
+
+        if (!str) { // only errors and statements return null
+
+            fprintf(stderr, "COMPILATION ERROR: Expected expression on line %zu\n", node->children[1]->current->line);
+            freeAST(true, node);
+            exit(EX_DATAERR);
+        }
+
+        char* res = unsafe_temp_reg();
+        fprintf(ir, "%s = CONCAT %s \"\"\n", res, str);
+
+        return res;
+    }
+
+    char* acc = unsafe_compile_node(ir, node->children[1]);
+
+    for (size_t i = 2; i < arr_len(node->children); i++) {
+
+        char* next = unsafe_compile_node(ir, node->children[i]);
+
+        if (!next) { // only errors and statements return null
+
+            fprintf(stderr, "COMPILATION ERROR: Expected expression on line %zu\n", node->children[i]->current->line);
+            free(acc);
+            freeAST(true, node);
+            exit(EX_DATAERR);
+        }
+
+        char* res = unsafe_temp_reg();
+        fprintf(ir, "%s = CONCAT %s %s\n", res, acc, next);
+
+        free(acc);
+        acc = strdup(res);
+
+        free(next);
+        free(res);
+    }
+
+    return acc;
+}
+
+
+char* unsafe_compile_panic(FILE* ir, ASTNode* node) {
+
+    fprintf(ir, "PRINT \"Panicked on line %zu\\n\"\n", node->children[0]->current->line);
+    fputs("PRINT \"Trigger: \"\n", ir);
+    free(unsafe_compile_print(ir, node));
+    fputs("PANIC\n", ir);
+
+    return NULL;
+}
+
+
+char* unsafe_compile_error(FILE* ir, ASTNode* node) {
+
+    fprintf(ir, "PRINT \"Error on line %zu\\n\"\n", node->children[0]->current->line);
+    fputs("PRINT \"Diagnosis: \"\n", ir);
+    free(unsafe_compile_print(ir, node));
+    fputs("ABORT\n", ir);
+
+    return NULL;
+}
 
 
 

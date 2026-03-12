@@ -1,0 +1,22 @@
+x = 10
+
+%t1 = GREATER_EQUAL x 20
+JMPF %t1 L_else_0
+PRINT "Panicked on line 3\n"
+PRINT "Trigger: "
+PRINT "x = "
+PRINT x
+PRINT " >= 20\n"
+PANIC
+%t0 = 0
+JMP L_endif0
+LABEL L_else_0
+PRINT "Error on line 3\n"
+PRINT "Diagnosis: "
+PRINT "x = "
+PRINT x
+PRINT " < 20\n"
+ABORT
+%t0 = 0
+LABEL L_endif0
+

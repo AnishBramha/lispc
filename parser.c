@@ -82,7 +82,7 @@ ASTNode* unsafe_build(FILE* src, TokenInfo* tokenInfo) { // recursive descent
 
                 PLUS, MINUS, STAR, SLASH, PERCENT, CARET, SEMICOLON, TRUE, FALSE, AND, OR, NOT,
                 PRINT, IDENTIFIER, INT, FLOAT, STRING, DEFVAR, DEFUN, LET, NEWLINE,
-                LESS, LESS_EQUAL, GREATER, GREATER_EQUAL, EQL, NOT_EQUAL, IF,
+                LESS, LESS_EQUAL, GREATER, GREATER_EQUAL, EQL, NOT_EQUAL, IF, CONCAT, PANIC, ERROR
 
                 )) { // atom
 

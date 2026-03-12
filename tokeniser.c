@@ -226,6 +226,15 @@ TokenInfo* unsafe_get_alpha(FILE* src, int c, TokenInfo* tokenInfo) {
     else if (!strncmp(tokenInfo->lexeme, "if", MAX))
         tokenInfo->token = IF;
 
+    else if (!strncmp(tokenInfo->lexeme, "concat", MAX))
+        tokenInfo->token = CONCAT;
+
+    else if (!strncmp(tokenInfo->lexeme, "panic", MAX))
+        tokenInfo->token = PANIC;
+
+    else if (!strncmp(tokenInfo->lexeme, "error", MAX))
+        tokenInfo->token = ERROR;
+
     else
         tokenInfo->token = IDENTIFIER;
 

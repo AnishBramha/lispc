@@ -20,7 +20,7 @@ typedef enum {
     SEMICOLON,
 
     // builtin functions
-    PRINT, NEWLINE,
+    PRINT, NEWLINE, CONCAT, PANIC, ERROR,
 
     // miscellaneous
     IDENTIFIER, INT, FLOAT, STRING, END_OF_FILE, TRUE, FALSE,

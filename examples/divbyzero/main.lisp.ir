@@ -1,0 +1,3 @@
+%t0 = DIV 1 0
+PRINT %t0
+
