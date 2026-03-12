@@ -6,6 +6,7 @@ LDFLAGS = -lm -O3 -flto
 
 ifeq ($(UNAME_S),Linux)
     CXXFLAGS += -D_GNU_SOURCE -Wno-stringop-overflow -Wno-format-truncation -Wno-implicit-fallthrough
+	LDFLAGS += -Wno-stringop-overflow
 endif
 
 ifeq ($(UNAME_S),Darwin)
