@@ -5,8 +5,7 @@ CXXFLAGS = -std=c23 -Wall -Wextra -Wpedantic -Werror -Wno-sign-compare -g -MMD -
 LDFLAGS = -g -lm
 
 ifeq ($(UNAME_S),Linux)
-    CXXFLAGS += -fsanitize=address,undefined -D_GNU_SOURCE -Wno-stringop-overflow -Wno-format-truncation -Wno-implicit-fallthrough
-    LDFLAGS  += -fsanitize=address,undefined
+    CXXFLAGS += -D_GNU_SOURCE -Wno-stringop-overflow -Wno-format-truncation -Wno-implicit-fallthrough
 endif
 
 ifeq ($(UNAME_S),Darwin)
