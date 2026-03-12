@@ -1132,6 +1132,12 @@ void transpile_gnu_x86_64(FILE* ir, FILE* s) {
         bool in_quote = false;
         for (char* p = line; *p; p++) {
 
+            if (*p == '\\' && *(p + 1) != NIL) {
+
+                p++; 
+                continue;
+            }
+
             if (*p == '\"')
                 in_quote = !in_quote;
 
@@ -1509,7 +1515,7 @@ void transpile_gnu_x86_64(FILE* ir, FILE* s) {
                 !strncmp(t3, "LESS", MAX) || !strncmp(t3, "LESS_EQUAL", MAX) ||
                 !strncmp(t3, "GREATER", MAX) || !strncmp(t3, "GREATER_EQUAL", MAX) ||
                 !strncmp(t3, "EQL", MAX) || !strncmp(t3, "NOT_EQUAL", MAX) ||
-                !strncmp(t3, "CONCAT", MAX)) {
+                !strncmp(t3, "CONCAT", MAX) || !strncmp(t3, "POW", MAX)) {
 
                 char r1[16];
                 int p1 = fetch_operand_x86_64(out, t4, phys_reg, r1);
@@ -1551,7 +1557,8 @@ void transpile_gnu_x86_64(FILE* ir, FILE* s) {
                     fputs("    push r10\n    push r11\n    push r12\n", out);
                     fputs("    push r13\n    push r14\n    push r15\n", out);
                     
-                    fputs("    call pow\n", out);
+                    fputs("    mov eax, 2\n", out);
+                    fputs("    call pow@PLT\n", out);
                     
                     fputs("    pop r15\n    pop r14\n    pop r13\n", out);
                     fputs("    pop r12\n    pop r11\n    pop r10\n", out);

@@ -129,7 +129,7 @@ int main(int argc, char** argv) {
 
         if (!fork()) {
 
-            execlp("cc", "cc", "-save-temps", "-lm", "-o", exec, s, NULL);
+            execlp("cc", "cc", "-save-temps", "-o", exec, s, "-lm", NULL);
             exit(EXIT_FAILURE);
         }
         wait(NULL);
