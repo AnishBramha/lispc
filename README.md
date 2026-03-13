@@ -8,7 +8,7 @@ Single-pass Lisp subset compiler
 
 ## Usage
 
-`lispc <file>.lisp [-gnu|-clean|-run|-compile|-help]`
+`lispc <file>.lisp [-clean|-run|-compile|-help]`
 
 - Options:
     * `-clean`: Produce no intermediate files
@@ -16,3 +16,5 @@ Single-pass Lisp subset compiler
     * `-compile`: Compile to Assembly, but do not link to form executable
 
 - No options starts an REPL
+- Type `make` to get started
+
