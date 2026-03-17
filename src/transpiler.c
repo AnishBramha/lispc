@@ -1,8 +1,8 @@
-#include "../transpiler/transpiler.h"
-#include "../common.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
+#include "transpiler.h"
+#include "common.h"
 
 
 static bool free_bitmap[8] = {true, true, true, true, true, true, true, true};

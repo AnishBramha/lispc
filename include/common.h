@@ -10,7 +10,7 @@
 
 #define NIL '\0'
 
-#define loop for(;;)
+#define loop for (;;)
 
 
 

@@ -2,11 +2,11 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../common.h"
-#include "../lexer/lexer.h"
+#include "common.h"
+#include "lexer.h"
 
 #define STD_ARRAY
-#include "../../std/array.h"
+#include "std/array.h"
 
 
 TokenInfo* unsafe_get(FILE* src, size_t line) {

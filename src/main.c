@@ -1,12 +1,12 @@
-#include "compiler/compiler.h"
-#include "./common.h"
-#include "transpiler/transpiler.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include "compiler.h"
+#include "common.h"
+#include "transpiler.h"
 
 #define KB64 65536
 #define KB8 8192

@@ -1,18 +1,7 @@
-CXX = cc
-UNAME_S := $(shell uname -s)
+CC = cc
 
-CXXFLAGS = -std=c23 -Wall -Wextra -Wpedantic -Werror -Wno-sign-compare -MMD -fno-common -O3 -flto -march=native -DNDEBUG
-LDFLAGS = -lm -O3 -flto
-
-ifeq ($(UNAME_S),Linux)
-    CXXFLAGS += -D_GNU_SOURCE -Wno-stringop-overflow -Wno-format-truncation -Wno-implicit-fallthrough
-	LDFLAGS += -Wno-stringop-overflow
-endif
-
-ifeq ($(UNAME_S),Darwin)
-    CXXFLAGS += -fsanitize=address,undefined
-    LDFLAGS  += -fsanitize=address,undefined
-endif
+CFLAGS = -std=c23 -I. -Iinclude -Istd -Wall -Wextra -Wpedantic -Werror -Wno-sign-compare -MMD -fno-common -O3 -flto -march=native -DNDEBUG -fsanitize=address,undefined
+LDFLAGS = -lm -O3 -flto -fsanitize=address,undefined
 
 TARGET = target/lispc.out
 BUILD_DIR = build
@@ -42,7 +31,7 @@ $(TARGET): $(OBJS)
 	@mkdir -p $(dir $@)
 	@printf "\n$(BOLD)$(GREEN)Compilation finished with code %d ✓$(RESET)\n" $$status;
 	@echo "\n$(BOLD)$(CYAN)Linking ↺$(RESET)"
-	@if ! $(CXX) $(LDFLAGS) -o $@ $^ > /dev/null ; then \
+	@if ! $(CC) $(LDFLAGS) -o $@ $^ > /dev/null ; then \
 		echo "\n$(BOLD)$(RED)Linking failed ✘$(RESET)\n"; \
 		exit 1;\
 	fi
@@ -55,7 +44,7 @@ $(BUILD_DIR)/%.o: ./%.c
 
 	@mkdir -p $(dir $@)
 
-	@if ! $(CXX) $(CXXFLAGS) -c $< -o $@ > /dev/null; then \
+	@if ! $(CC) $(CFLAGS) -c $< -o $@ > /dev/null; then \
 		printf "\n$(BOLD)$(RED)Compilation exited abnormally with code %d ✘ $(RESET)\n\n" $$status;\
 		exit 1;\
 	fi

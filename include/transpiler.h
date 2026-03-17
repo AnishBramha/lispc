@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../common.h"
+#include "common.h"
 
 #define STACK_MAX 4096
 

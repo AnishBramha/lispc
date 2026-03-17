@@ -1,8 +1,8 @@
-#include "../common.h"
-#include "../parser/parser.h"
-#include "../lexer/lexer.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include "common.h"
+#include "parser.h"
+#include "lexer.h"
 
 
 #define expect(handle, tokenInfo, ...) \

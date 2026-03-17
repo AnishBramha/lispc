@@ -4,7 +4,7 @@
 
 #include <stddef.h>
 #include <stdlib.h>
-#include "./header.h"
+#include "header.h"
 
 #define arr_push(arr, x) \
  \

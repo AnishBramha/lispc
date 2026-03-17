@@ -1,8 +1,6 @@
 #pragma once
 
-#include <stdio.h>
-
-#include "../parser/parser.h"
+#include "parser.h"
 
 typedef enum {
 

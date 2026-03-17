@@ -10,7 +10,7 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
-#include "./header.h"
+#include "header.h"
 
 typedef uint32_t u32;
 typedef ptrdiff_t idx_t;

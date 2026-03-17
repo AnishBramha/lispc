@@ -1,11 +1,11 @@
 #pragma once
 
 #include <stdbool.h>
-#include "../lexer/lexer.h"
-#include "../common.h"
+#include "lexer.h"
+#include "common.h"
 
 #define STD_ARRAY
-#include "../../std/array.h"
+#include "std/array.h"
 
 
 typedef struct ASTNode {
